@@ -1352,23 +1352,95 @@ async function handleApi(request: Request): Promise<Response> {
 
   try {
     if (pathname === '/api/check-email') {
-      const route = await import('./app/api/check-email/route.ts');
-      if (request.method === 'POST' && typeof route.POST === 'function') {
-        return route.POST(request) as Promise<Response>;
+      if (request.method === 'GET') {
+        return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
       }
-      if (request.method === 'GET' && typeof route.GET === 'function') {
-        return route.GET() as Promise<Response>;
+      if (request.method === 'POST') {
+        let conn = null;
+        try {
+          const body = await request.json().catch(() => ({}));
+          const email = (body?.email as string | undefined)?.trim().toLowerCase();
+          if (!email) {
+            return new Response(JSON.stringify({ error: 'Email is required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+          }
+          const pool = getPool();
+          conn = await pool.getConnection();
+          const [rows] = await conn.execute('SELECT id, email, paid, used FROM members WHERE email = ? LIMIT 1', [email]);
+          const result = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
+          if (!result) {
+            return new Response(JSON.stringify({ found: 0, used: 0, paid: 0, invalidMentor: 0 }), { headers: { 'Content-Type': 'application/json' } });
+          }
+          let used: number = Number(result.used ?? 0);
+          const paid: number = Number(result.paid ?? 0);
+          if (used === 0) {
+            await conn.execute('UPDATE members SET used = 1 WHERE email = ?', [email]);
+            used = 0;
+          }
+          return new Response(JSON.stringify({ found: 1, used, paid, invalidMentor: 0 }), { headers: { 'Content-Type': 'application/json' } });
+        } catch (error) {
+          console.error('❌ check-email error:', error);
+          return new Response(JSON.stringify({ found: 0, used: 0, paid: 0, invalidMentor: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        } finally {
+          if (conn) { try { conn.release(); } catch (e) {} }
+        }
       }
       return new Response('Method Not Allowed', { status: 405 });
     }
-    // Add auth-license routing
+
     if (pathname === '/api/auth-license') {
-      const route = await import('./app/api/auth-license/route.ts');
-      if (request.method === 'POST' && typeof route.POST === 'function') {
-        return route.POST(request) as Promise<Response>;
+      if (request.method === 'GET') {
+        return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
       }
-      if (request.method === 'GET' && typeof route.GET === 'function') {
-        return route.GET() as Promise<Response>;
+      if (request.method === 'POST') {
+        let conn = null;
+        try {
+          const body = await request.json().catch(() => ({} as any));
+          const licence = (body?.licence ?? body?.license ?? '').toString().trim();
+          const phoneSecret = (body?.phone_secret as string | undefined)?.toString().trim();
+          if (!licence) {
+            return new Response(JSON.stringify({ message: 'error' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          const pool = getPool();
+          conn = await pool.getConnection();
+          const [rows] = await conn.execute(
+            `SELECT l.k_ey AS lic_key, l.user AS lic_user, l.status AS lic_status, l.expires AS lic_expires,
+                    l.phone_secret_code AS lic_phone_secret_code, l.ea AS ea_id,
+                    e.name AS ea_name, e.notification_key AS ea_notification, e.owner AS owner_id,
+                    a.displayname AS owner_name, a.email AS owner_email, a.phone AS owner_phone, a.image AS owner_logo
+             FROM licences l LEFT JOIN eas e ON e.id = l.ea LEFT JOIN admin a ON a.id = e.owner
+             WHERE UPPER(REPLACE(l.k_ey, '-', '')) = UPPER(REPLACE(?, '-', '')) LIMIT 1`, [licence]);
+          const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
+          if (!row) {
+            return new Response(JSON.stringify({ message: 'error' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          const canonicalKey: string = row.lic_key ?? licence;
+          const rawStored = row.lic_phone_secret_code as string | null;
+          const isUnset = !rawStored || String(rawStored).trim() === '' || String(rawStored).trim().toLowerCase() === 'none';
+          let effectiveSecret = rawStored as string | null;
+          if (isUnset) {
+            const crypto = await import('crypto');
+            const generated = crypto.randomBytes(16).toString('hex');
+            await conn.execute('UPDATE licences SET phone_secret_code = ? WHERE k_ey = ?', [generated, canonicalKey]);
+            effectiveSecret = generated;
+          } else {
+            if (!phoneSecret || phoneSecret !== rawStored) {
+              return new Response(JSON.stringify({ message: 'used' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            }
+            effectiveSecret = rawStored;
+          }
+          const data = {
+            user: String(row.lic_user ?? ''), status: String(row.lic_status ?? 'active'), expires: row.lic_expires ?? '',
+            key: canonicalKey, phone_secret_key: effectiveSecret || '',
+            ea_name: row.ea_name || 'EA CONVERTER', ea_notification: row.ea_notification || '',
+            owner: { name: row.owner_name || 'EA CONVERTER', email: row.owner_email || '', phone: row.owner_phone || '', logo: row.owner_logo || '' },
+          };
+          return new Response(JSON.stringify({ message: 'accept', data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        } catch (error) {
+          console.error('❌ auth-license error:', error);
+          return new Response(JSON.stringify({ message: 'error' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        } finally {
+          if (conn) { try { conn.release(); } catch (e) {} }
+        }
       }
       return new Response('Method Not Allowed', { status: 405 });
     }
