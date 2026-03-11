@@ -1,0 +1,118 @@
+{
+  "expo": {
+    "name": "EA Converter",
+    "slug": "ea-converter-app-bf6qtmx7-6jkhyg7w",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "myapp",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "statusBar": {
+      "style": "light",
+      "backgroundColor": "#000000",
+      "translucent": false
+    },
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.ea-converter-automated-forex-trading-app-bf6qtmx7-6jkhyg7w",
+      "statusBar": {
+        "style": "light",
+        "backgroundColor": "#000000",
+        "translucent": false
+      },
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsArbitraryLoadsInWebContent": true,
+          "NSExceptionDomains": {
+            "trade.mql5.com": {
+              "NSIncludesSubdomains": true,
+              "NSTemporaryExceptionAllowsInsecureHTTPLoads": false,
+              "NSTemporaryExceptionMinimumTLSVersion": "TLSv1.2",
+              "NSExceptionRequiresForwardSecrecy": false
+            },
+            "metatraderweb.app": {
+              "NSIncludesSubdomains": true,
+              "NSTemporaryExceptionAllowsInsecureHTTPLoads": false,
+              "NSTemporaryExceptionMinimumTLSVersion": "TLSv1.2",
+              "NSExceptionRequiresForwardSecrecy": false
+            },
+            "webtrader.razormarkets.co.za": {
+              "NSIncludesSubdomains": true,
+              "NSTemporaryExceptionAllowsInsecureHTTPLoads": false,
+              "NSTemporaryExceptionMinimumTLSVersion": "TLSv1.2",
+              "NSExceptionRequiresForwardSecrecy": false
+            }
+          }
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "package": "app.ea-converter-automated-forex-trading-app-bf6qtmx7-6jkhyg7w",
+      "statusBar": {
+        "style": "light",
+        "backgroundColor": "#000000",
+        "translucent": false
+      }
+    },
+    "web": {
+      "favicon": "./assets/images/favicon.png",
+      "name": "EA Converter",
+      "shortName": "EA Converter",
+      "startUrl": "/",
+      "display": "standalone",
+      "orientation": "portrait",
+      "themeColor": "#000000",
+      "backgroundColor": "#000000",
+      "description": "Automated Forex Trading EA Converter App",
+      "scope": "/",
+      "lang": "en",
+      "categories": ["finance", "business", "productivity"],
+      "icons": [
+        {
+          "src": "./assets/images/icon.png",
+          "sizes": "192x192",
+          "type": "image/png",
+          "purpose": "any maskable"
+        },
+        {
+          "src": "./assets/images/adaptive-icon.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any maskable"
+        }
+      ],
+      "screenshots": [
+        {
+          "src": "./assets/images/icon.png",
+          "sizes": "1280x720",
+          "type": "image/png",
+          "formFactor": "wide"
+        }
+      ],
+      "relatedApplications": []
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "82a5b181-3fb0-4117-9f99-33d989cdf0a3"
+      }
+    },
+    "owner": "justvino"
+  }
+}
