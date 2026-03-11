@@ -55,8 +55,41 @@ export async function POST(request: Request): Promise<Response> {
     }
 }
 
-export async function GET(): Promise<Response> {
-    return Response.json({ ok: true });
+export async function GET(request: Request): Promise<Response> {
+    let conn = null;
+    try {
+        const url = new URL(request.url);
+        const testEmail = url.searchParams.get('email') || 'respondscooby@gmail.com';
+        
+        const pool = await getPool();
+        conn = await pool.getConnection();
+        
+        // Test basic connection
+        await conn.ping();
+        
+        // Test the actual query
+        const [rows] = await conn.execute(
+            'SELECT id, email, paid, used FROM members WHERE email = ? LIMIT 1',
+            [testEmail]
+        );
+        
+        const result = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
+        
+        return Response.json({
+            db_connected: true,
+            email_tested: testEmail,
+            found: result ? true : false,
+            data: result ? { id: result.id, email: result.email, paid: Number(result.paid), used: Number(result.used) } : null,
+        });
+    } catch (error: any) {
+        return Response.json({
+            db_connected: false,
+            error: error?.message || 'Unknown error',
+            code: error?.code || 'UNKNOWN',
+        });
+    } finally {
+        if (conn) { try { conn.release(); } catch(e) {} }
+    }
 }
 
 
