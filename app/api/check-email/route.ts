@@ -1,97 +1,44 @@
-import { getPool } from '@/app/api/_db';
+// Login/auth proxy: forwards to ea-converter.com/admin/api/auth/app/ (Android backend)
+
+import { proxyCheckEmail } from '@/services/ea-converter-proxy';
 
 export async function POST(request: Request): Promise<Response> {
-    let conn = null;
+  try {
+    const body = await request.json().catch(() => ({}));
+    const email = (body?.email as string | undefined)?.trim().toLowerCase();
 
-    try {
-        const body = await request.json().catch(() => ({}));
-        const email = (body?.email as string | undefined)?.trim().toLowerCase();
-        const mentor = (body?.mentor as string | undefined)?.toString().trim();
-
-        if (!email) {
-            return Response.json({ error: 'Email is required' }, { status: 400 });
-        }
-
-        const pool = await getPool();
-        conn = await pool.getConnection();
-
-        const [rows] = await conn.execute(
-            'SELECT id, email, paid, used FROM members WHERE email = ? LIMIT 1',
-            [email]
-        );
-
-        const result = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
-
-        if (!result) {
-            return Response.json({ found: 0, used: 0, paid: 0, invalidMentor: 0 });
-        }
-
-        let used: number = Number(result.used ?? 0);
-        // Explicit 0/1: handle MySQL TINYINT, booleans, strings
-        const paid: number = (Number(result.paid ?? 0) > 0 || result.paid === true) ? 1 : 0;
-
-        // If it's the user's first login (used=0), mark as used immediately
-        if (used === 0) {
-            await conn.execute('UPDATE members SET used = 1 WHERE email = ?', [email]);
-            used = 0;
-        }
-
-        // Note: mentor validation not enforced currently; include flag for client compatibility
-        const invalidMentor = 0;
-
-        return Response.json({ found: 1, used, paid, invalidMentor });
-    } catch (error) {
-        console.error('❌ check-email error:', error);
-        // Graceful fallback: treat as not found/unpaid/unused so client can show payment
-        return Response.json({ found: 0, used: 0, paid: 0, invalidMentor: 0 }, { status: 200 });
-    } finally {
-        // Always release connection back to pool
-        if (conn) {
-            try {
-                conn.release();
-            } catch (releaseError) {
-                console.error('❌ Failed to release connection in check-email:', releaseError);
-            }
-        }
+    if (!email) {
+      return Response.json({ error: 'Email is required' }, { status: 400 });
     }
+
+    const result = await proxyCheckEmail(email);
+    return Response.json(result);
+  } catch (error) {
+    console.error('❌ check-email proxy error:', error);
+    return Response.json({ found: 0, used: 0, paid: 0, invalidMentor: 0 }, { status: 200 });
+  }
 }
 
 export async function GET(request: Request): Promise<Response> {
-    let conn = null;
-    try {
-        const url = new URL(request.url);
-        const testEmail = url.searchParams.get('email') || 'respondscooby@gmail.com';
-        
-        const pool = await getPool();
-        conn = await pool.getConnection();
-        
-        // Test basic connection
-        await conn.ping();
-        
-        // Test the actual query
-        const [rows] = await conn.execute(
-            'SELECT id, email, paid, used FROM members WHERE email = ? LIMIT 1',
-            [testEmail]
-        );
-        
-        const result = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
-        
-        return Response.json({
-            db_connected: true,
-            email_tested: testEmail,
-            found: result ? true : false,
-            data: result ? { id: result.id, email: result.email, paid: Number(result.paid), used: Number(result.used) } : null,
-        });
-    } catch (error) {
-        const err = error || {};
-        return Response.json({
-            db_connected: false,
-            error: err.message || 'Unknown error',
-            code: err.code || 'UNKNOWN',
-        });
-    } finally {
-        if (conn) { try { conn.release(); } catch(e) {} }
-    }
+  try {
+    const url = new URL(request.url);
+    const testEmail = url.searchParams.get('email') || 'respondscooby@gmail.com';
+
+    const result = await proxyCheckEmail(testEmail);
+    return Response.json({
+      db_connected: true,
+      proxy: 'ea-converter.com',
+      email_tested: testEmail,
+      found: result.found === 1,
+      data: result.found === 1 ? { found: result.found, paid: result.paid, used: result.used } : null,
+    });
+  } catch (error) {
+    const err = error as Error & { code?: string };
+    return Response.json({
+      db_connected: false,
+      proxy: 'ea-converter.com',
+      error: err.message || 'Unknown error',
+      code: err.code || 'UNKNOWN',
+    });
+  }
 }
-
-

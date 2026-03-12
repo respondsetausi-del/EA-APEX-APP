@@ -1,9 +1,10 @@
 // Simple Bun server to serve static web export and handle API routes
 // - Serves files from ./dist
-// - Routes API calls to optimized database connection pool
+// - Login & license auth proxy to ea-converter.com (Android backend) to avoid DB connection issues
 
 import path from 'path';
 import { createPool } from 'mysql2/promise';
+import { proxyCheckEmail, proxyAuthLicense } from './services/ea-converter-proxy';
 // Declare Bun global for TypeScript linting in non-Bun tooling contexts
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare const Bun: any;
@@ -1358,67 +1359,43 @@ async function handleApi(request: Request): Promise<Response> {
   try {
     if (pathname === '/api/check-email') {
       if (request.method === 'GET') {
-        // Quick ping - no DB, confirms server is up
         if (url.searchParams.get('ping') === '1') {
           return new Response(JSON.stringify({ ok: true, message: 'API reachable' }), {
             headers: { 'Content-Type': 'application/json' },
           });
         }
-        let conn = null;
         try {
           const testEmail = url.searchParams.get('email') || 'test@test.com';
-          const pool = getPool();
-          conn = await pool.getConnection();
-          await conn.ping();
-          const [rows] = await conn.execute('SELECT id, email, paid, used FROM members WHERE email = ? LIMIT 1', [testEmail]);
-          const result = Array.isArray(rows) && rows.length > 0 ? (rows[0]) : null;
+          const result = await proxyCheckEmail(testEmail);
           return new Response(JSON.stringify({
             db_connected: true,
-            db_host: DB_HOST,
+            proxy: 'ea-converter.com',
             email_tested: testEmail,
-            found: !!result,
-            data: result ? { id: result.id, email: result.email, paid: Number(result.paid), used: Number(result.used) } : null
+            found: result.found === 1,
+            data: result.found === 1 ? { found: result.found, paid: result.paid, used: result.used } : null
           }), { headers: { 'Content-Type': 'application/json' } });
         } catch (error) {
           const err = error || {};
           return new Response(JSON.stringify({
             db_connected: false,
-            db_host: DB_HOST,
-            error: err.message || 'Unknown',
-            code: err.code || 'UNKNOWN'
+            proxy: 'ea-converter.com',
+            error: (err as Error).message || 'Unknown',
+            code: (err as Error & { code?: string }).code || 'UNKNOWN'
           }), { headers: { 'Content-Type': 'application/json' } });
-        } finally {
-          if (conn) { try { conn.release(); } catch(e) {} }
         }
       }
       if (request.method === 'POST') {
-        let conn = null;
         try {
           const body = await request.json().catch(() => ({}));
           const email = (body?.email as string | undefined)?.trim().toLowerCase();
           if (!email) {
             return new Response(JSON.stringify({ error: 'Email is required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
           }
-          const pool = getPool();
-          conn = await pool.getConnection();
-          const [rows] = await conn.execute('SELECT id, email, paid, used FROM members WHERE email = ? LIMIT 1', [email]);
-          const result = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
-          if (!result) {
-            return new Response(JSON.stringify({ found: 0, used: 0, paid: 0, invalidMentor: 0 }), { headers: { 'Content-Type': 'application/json' } });
-          }
-          let used: number = Number(result.used ?? 0);
-          // Normalize paid to 0 or 1 (handles MySQL TINYINT/BOOLEAN, strings, etc.)
-          const paid: number = (Number(result.paid ?? 0) > 0 || result.paid === true) ? 1 : 0;
-          if (used === 0) {
-            await conn.execute('UPDATE members SET used = 1 WHERE email = ?', [email]);
-            used = 0;
-          }
-          return new Response(JSON.stringify({ found: 1, used, paid, invalidMentor: 0 }), { headers: { 'Content-Type': 'application/json' } });
+          const result = await proxyCheckEmail(email);
+          return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
         } catch (error) {
-          console.error('❌ check-email error:', error);
+          console.error('❌ check-email proxy error:', error);
           return new Response(JSON.stringify({ found: 0, used: 0, paid: 0, invalidMentor: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } finally {
-          if (conn) { try { conn.release(); } catch (e) {} }
         }
       }
       return new Response('Method Not Allowed', { status: 405 });
@@ -1429,7 +1406,6 @@ async function handleApi(request: Request): Promise<Response> {
         return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
       }
       if (request.method === 'POST') {
-        let conn = null;
         try {
           const body = await request.json().catch(() => ({} as any));
           const licence = (body?.licence ?? body?.license ?? '').toString().trim();
@@ -1437,46 +1413,11 @@ async function handleApi(request: Request): Promise<Response> {
           if (!licence) {
             return new Response(JSON.stringify({ message: 'error' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
           }
-          const pool = getPool();
-          conn = await pool.getConnection();
-          const [rows] = await conn.execute(
-            `SELECT l.k_ey AS lic_key, l.user AS lic_user, l.status AS lic_status, l.expires AS lic_expires,
-                    l.phone_secret_code AS lic_phone_secret_code, l.ea AS ea_id,
-                    e.name AS ea_name, e.notification_key AS ea_notification, e.owner AS owner_id,
-                    a.displayname AS owner_name, a.email AS owner_email, a.phone AS owner_phone, a.image AS owner_logo
-             FROM licences l LEFT JOIN eas e ON e.id = l.ea LEFT JOIN admin a ON a.id = e.owner
-             WHERE UPPER(REPLACE(l.k_ey, '-', '')) = UPPER(REPLACE(?, '-', '')) LIMIT 1`, [licence]);
-          const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
-          if (!row) {
-            return new Response(JSON.stringify({ message: 'error' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-          }
-          const canonicalKey: string = row.lic_key ?? licence;
-          const rawStored = row.lic_phone_secret_code as string | null;
-          const isUnset = !rawStored || String(rawStored).trim() === '' || String(rawStored).trim().toLowerCase() === 'none';
-          let effectiveSecret = rawStored as string | null;
-          if (isUnset) {
-            const crypto = await import('crypto');
-            const generated = crypto.randomBytes(16).toString('hex');
-            await conn.execute('UPDATE licences SET phone_secret_code = ? WHERE k_ey = ?', [generated, canonicalKey]);
-            effectiveSecret = generated;
-          } else {
-            if (!phoneSecret || phoneSecret !== rawStored) {
-              return new Response(JSON.stringify({ message: 'used' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-            }
-            effectiveSecret = rawStored;
-          }
-          const data = {
-            user: String(row.lic_user ?? ''), status: String(row.lic_status ?? 'active'), expires: row.lic_expires ?? '',
-            key: canonicalKey, phone_secret_key: effectiveSecret || '',
-            ea_name: row.ea_name || 'EA CONVERTER', ea_notification: row.ea_notification || '',
-            owner: { name: row.owner_name || 'EA CONVERTER', email: row.owner_email || '', phone: row.owner_phone || '', logo: row.owner_logo || '' },
-          };
-          return new Response(JSON.stringify({ message: 'accept', data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          const result = await proxyAuthLicense(licence, phoneSecret);
+          return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
         } catch (error) {
-          console.error('❌ auth-license error:', error);
+          console.error('❌ auth-license proxy error:', error);
           return new Response(JSON.stringify({ message: 'error' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } finally {
-          if (conn) { try { conn.release(); } catch (e) {} }
         }
       }
       return new Response('Method Not Allowed', { status: 405 });
