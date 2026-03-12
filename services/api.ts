@@ -105,7 +105,8 @@ class ApiService {
     }
     let data: { found?: number; used?: number; paid?: number; invalidMentor?: number } = {};
     try {
-      data = (await res.json()) as { used?: number; paid?: number; invalidMentor?: number };
+      // FIXED: Added 'found' to the type
+      data = (await res.json()) as { found?: number; used?: number; paid?: number; invalidMentor?: number };
     } catch (e) {
       throw new Error('Authentication failed');
     }
