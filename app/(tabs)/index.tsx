@@ -7,6 +7,7 @@ import { RobotLogo } from '@/components/robot-logo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApp } from '@/providers/app-provider';
+import { LOGIN_DISABLED } from '@/constants/features';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
@@ -35,11 +36,18 @@ export default function HomeScreen() {
         if (!isFirstTime && eas.length === 0) {
           const emailAuthenticated = await AsyncStorage.getItem('emailAuthenticated');
 
-          // If email authentication was never completed, redirect to login
+          // If email authentication was never completed
           if (!emailAuthenticated || emailAuthenticated !== 'true') {
-            console.log('Email authentication not completed, redirecting to login...');
-            await setIsFirstTime(true);
-            router.replace('/login');
+            if (LOGIN_DISABLED) {
+              // Bypass: skip login, go straight to license (DB/auth saved for later)
+              console.log('Login disabled - bypassing to license...');
+              await AsyncStorage.setItem('emailAuthenticated', 'true');
+              router.replace('/license');
+            } else {
+              console.log('Email authentication not completed, redirecting to login...');
+              await setIsFirstTime(true);
+              router.replace('/login');
+            }
           } else {
             // Email authentication was completed, but no license added yet - go to license page
             console.log('Email authenticated but no EA added, redirecting to license...');
@@ -72,14 +80,19 @@ export default function HomeScreen() {
   const primaryEAImage = useMemo(() => getEAImageUrl(primaryEA), [getEAImageUrl, primaryEA]);
 
   const handleStartNow = async () => {
-    console.log('Start Now pressed, navigating to login...');
     try {
-      // Clear email authentication flag when starting fresh
-      await AsyncStorage.removeItem('emailAuthenticated');
       await setIsFirstTime(false);
-      router.push('/login');
+      if (LOGIN_DISABLED) {
+        console.log('Start Now pressed - login disabled, navigating to license...');
+        await AsyncStorage.setItem('emailAuthenticated', 'true');
+        router.push('/license');
+      } else {
+        console.log('Start Now pressed, navigating to login...');
+        await AsyncStorage.removeItem('emailAuthenticated');
+        router.push('/login');
+      }
     } catch (error) {
-      console.error('Error navigating to login:', error);
+      console.error('Error navigating:', error);
     }
   };
 
