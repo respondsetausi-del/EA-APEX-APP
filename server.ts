@@ -1396,7 +1396,8 @@ async function handleApi(request: Request): Promise<Response> {
             return new Response(JSON.stringify({ found: 0, used: 0, paid: 0, invalidMentor: 0 }), { headers: { 'Content-Type': 'application/json' } });
           }
           let used: number = Number(result.used ?? 0);
-          const paid: number = Number(result.paid ?? 0);
+          // Normalize paid to 0 or 1 (handles MySQL TINYINT/BOOLEAN, strings, etc.)
+          const paid: number = (Number(result.paid ?? 0) > 0 || result.paid === true) ? 1 : 0;
           if (used === 0) {
             await conn.execute('UPDATE members SET used = 1 WHERE email = ?', [email]);
             used = 0;

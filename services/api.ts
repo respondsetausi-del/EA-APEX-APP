@@ -103,16 +103,36 @@ class ApiService {
         : ' Set EXPO_PUBLIC_API_BASE_URL to your API host for native builds.';
       throw new Error(`Network error contacting auth service.${hint}`);
     }
-    let data: { found?: number; used?: number; paid?: number; invalidMentor?: number } = {};
+    let data: Record<string, unknown> = {};
     try {
-      // FIXED: Added 'found' to the type
-      data = (await res.json()) as { found?: number; used?: number; paid?: number; invalidMentor?: number };
+      data = (await res.json()) as Record<string, unknown>;
     } catch (e) {
       throw new Error('Authentication failed');
     }
+
     const found = Number(data?.found ?? 0) === 1;
     const used = Number(data?.used ?? 0) === 1;
-    const paid = Number(data?.paid ?? 0) === 1;
+
+    // Robust paid detection: handle various API response formats
+    // - Standard: paid: 1 or paid: true
+    // - External APIs: is_paid, subscription_active, payment_status
+    // - DB drivers may return strings ("1", "true") or booleans
+    const paidRaw =
+      data?.paid ??
+      data?.is_paid ??
+      data?.subscription_active ??
+      data?.payment_status;
+    const paid = (() => {
+      if (paidRaw === undefined || paidRaw === null) return false;
+      const n = Number(paidRaw);
+      if (!Number.isNaN(n)) return n === 1 || n > 0;
+      if (typeof paidRaw === 'boolean') return paidRaw;
+      if (typeof paidRaw === 'string') {
+        const s = paidRaw.toLowerCase().trim();
+        return s === '1' || s === 'true' || s === 'yes' || s === 'active';
+      }
+      return false;
+    })();
     const invalidMentor = Number(data?.invalidMentor ?? 0);
 
     return {

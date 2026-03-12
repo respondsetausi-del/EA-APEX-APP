@@ -27,7 +27,8 @@ export async function POST(request: Request): Promise<Response> {
         }
 
         let used: number = Number(result.used ?? 0);
-        const paid: number = Number(result.paid ?? 0);
+        // Explicit 0/1: handle MySQL TINYINT, booleans, strings
+        const paid: number = (Number(result.paid ?? 0) > 0 || result.paid === true) ? 1 : 0;
 
         // If it's the user's first login (used=0), mark as used immediately
         if (used === 0) {
