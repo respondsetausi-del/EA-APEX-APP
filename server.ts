@@ -1353,7 +1353,32 @@ async function handleApi(request: Request): Promise<Response> {
   try {
     if (pathname === '/api/check-email') {
       if (request.method === 'GET') {
-        return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+        // Diagnostic endpoint — test DB connection and email lookup
+        let conn = null;
+        try {
+          const testEmail = url.searchParams.get('email') || 'test@test.com';
+          const pool = getPool();
+          conn = await pool.getConnection();
+          await conn.ping();
+          const [rows] = await conn.execute('SELECT id, email, paid, used FROM members WHERE email = ? LIMIT 1', [testEmail]);
+          const result = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
+          return new Response(JSON.stringify({
+            db_connected: true,
+            db_host: DB_HOST,
+            email_tested: testEmail,
+            found: !!result,
+            data: result ? { id: result.id, email: result.email, paid: Number(result.paid), used: Number(result.used) } : null
+          }), { headers: { 'Content-Type': 'application/json' } });
+        } catch (error: any) {
+          return new Response(JSON.stringify({
+            db_connected: false,
+            db_host: DB_HOST,
+            error: error?.message || 'Unknown',
+            code: error?.code || 'UNKNOWN'
+          }), { headers: { 'Content-Type': 'application/json' } });
+        } finally {
+          if (conn) { try { conn.release(); } catch(e) {} }
+        }
       }
       if (request.method === 'POST') {
         let conn = null;
