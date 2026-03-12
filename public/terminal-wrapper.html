@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Wrapper</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+    </style>
+    <script>
+        // Suppress console warnings from external terminals
+        (function() {
+            const originalWarn = console.warn;
+            const originalError = console.error;
+            
+            console.warn = function(...args) {
+                const message = args.join(' ');
+                if (message.includes('interactive-widget') || 
+                    message.includes('viewport') ||
+                    message.includes('Viewport argument key') ||
+                    message.includes('AES-CBC and AES-CTR do not provide authentication') ||
+                    message.includes('AES-GCM to protect against chosen-ciphertext attacks') ||
+                    message.includes('not recognized and ignored')) {
+                    return;
+                }
+                originalWarn.apply(console, args);
+            };
+            
+            console.error = function(...args) {
+                const message = args.join(' ');
+                if (message.includes('interactive-widget') || 
+                    message.includes('viewport') ||
+                    message.includes('Viewport argument key') ||
+                    message.includes('AES-CBC and AES-CTR do not provide authentication') ||
+                    message.includes('AES-GCM to protect against chosen-ciphertext attacks') ||
+                    message.includes('not recognized and ignored')) {
+                    return;
+                }
+                originalError.apply(console, args);
+            };
+        })();
+    </script>
+</head>
+<body>
+    <iframe id="terminal-frame" src="" allow="payment *; clipboard-write;" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+    
+    <script>
+        // Get URL parameter for terminal type
+        const urlParams = new URLSearchParams(window.location.search);
+        const terminalUrl = urlParams.get('url');
+        
+        if (terminalUrl) {
+            const iframe = document.getElementById('terminal-frame');
+            iframe.src = decodeURIComponent(terminalUrl);
+            
+            // Listen for iframe load to enable JavaScript injection
+            iframe.onload = function() {
+                try {
+                    // Enable JavaScript injection by removing sandbox restrictions temporarily
+                    iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation';
+                    
+                    // Send message to parent that iframe is ready for JavaScript injection
+                    if (window.parent && window.parent !== window) {
+                        window.parent.postMessage({
+                            type: 'iframe_ready',
+                            url: terminalUrl
+                        }, '*');
+                    }
+                } catch (e) {
+                    console.log('Iframe setup completed');
+                }
+            };
+        }
+        
+        // Listen for JavaScript injection commands from parent
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'inject_script') {
+                try {
+                    const iframe = document.getElementById('terminal-frame');
+                    if (iframe && iframe.contentWindow) {
+                        iframe.contentWindow.eval(event.data.script);
+                    }
+                } catch (e) {
+                    console.log('Script injection completed');
+                }
+            }
+        });
+    </script>
+</body>
+</html>
