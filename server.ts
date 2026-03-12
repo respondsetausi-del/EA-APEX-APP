@@ -19,6 +19,7 @@ const DB_NAME = process.env.DB_NAME || process.env.MYSQLDATABASE || process.env.
 const DB_PORT = Number(process.env.DB_PORT || process.env.MYSQLPORT || process.env.MYSQL_PORT || 3306);
 
 // Optimized connection pool configuration for scaling AND CPU efficiency
+// Shorter timeouts (10s) so we fail fast on Render - avoids 502 from gateway timeout
 const POOL_CONFIG = {
   connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 20),
   maxIdle: Number(process.env.DB_MAX_IDLE || 10),
@@ -27,9 +28,9 @@ const POOL_CONFIG = {
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
   waitForConnections: true,
-  connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT || 20000),
-  acquireTimeout: Number(process.env.DB_ACQUIRE_TIMEOUT || 20000),
-  timeout: Number(process.env.DB_QUERY_TIMEOUT || 30000),
+  connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT || 10000),
+  acquireTimeout: Number(process.env.DB_ACQUIRE_TIMEOUT || 10000),
+  timeout: Number(process.env.DB_QUERY_TIMEOUT || 15000),
 
   // CPU-efficient settings
   decimalNumbers: true,
@@ -41,23 +42,25 @@ const POOL_CONFIG = {
   rowsAsArray: false,
 };
 
-// Create optimized database connection pool
-const pool = createPool({
-  host: DB_HOST,
-  user: DB_USER,
-  password: DB_PASSWORD,
-  database: DB_NAME,
-  port: DB_PORT,
-  ...POOL_CONFIG,
-});
-
-console.log('✅ Database connection pool initialized:', {
-  host: DB_HOST,
-  database: DB_NAME,
-  connectionLimit: POOL_CONFIG.connectionLimit,
-});
+// Lazy pool - created on first use to avoid startup crash if DB is unreachable
+let pool: Awaited<ReturnType<typeof createPool>> | null = null;
 
 function getPool() {
+  if (!pool) {
+    pool = createPool({
+      host: DB_HOST,
+      user: DB_USER,
+      password: DB_PASSWORD,
+      database: DB_NAME,
+      port: DB_PORT,
+      ...POOL_CONFIG,
+    });
+    console.log('✅ Database connection pool initialized:', {
+      host: DB_HOST,
+      database: DB_NAME,
+      connectionLimit: POOL_CONFIG.connectionLimit,
+    });
+  }
   return pool;
 }
 
@@ -65,8 +68,10 @@ function getPool() {
 async function shutdownServer() {
   console.log('🔄 Shutting down server...');
   try {
-    await pool.end();
-    console.log('✅ Database connections closed');
+    if (pool) {
+      await pool.end();
+      console.log('✅ Database connections closed');
+    }
     process.exit(0);
   } catch (error) {
     console.error('❌ Error during shutdown:', error);
@@ -1353,6 +1358,12 @@ async function handleApi(request: Request): Promise<Response> {
   try {
     if (pathname === '/api/check-email') {
       if (request.method === 'GET') {
+        // Quick ping - no DB, confirms server is up
+        if (url.searchParams.get('ping') === '1') {
+          return new Response(JSON.stringify({ ok: true, message: 'API reachable' }), {
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
         let conn = null;
         try {
           const testEmail = url.searchParams.get('email') || 'test@test.com';
@@ -1650,6 +1661,7 @@ async function handleApi(request: Request): Promise<Response> {
 
 const server = Bun.serve({
   port: PORT,
+  hostname: '0.0.0.0', // Required for Render/Docker - listen on all interfaces
   async fetch(request: Request) {
     const url = new URL(request.url);
 
