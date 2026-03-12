@@ -1353,7 +1353,6 @@ async function handleApi(request: Request): Promise<Response> {
   try {
     if (pathname === '/api/check-email') {
       if (request.method === 'GET') {
-        // Diagnostic endpoint — test DB connection and email lookup
         let conn = null;
         try {
           const testEmail = url.searchParams.get('email') || 'test@test.com';
@@ -1361,7 +1360,7 @@ async function handleApi(request: Request): Promise<Response> {
           conn = await pool.getConnection();
           await conn.ping();
           const [rows] = await conn.execute('SELECT id, email, paid, used FROM members WHERE email = ? LIMIT 1', [testEmail]);
-          const result = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
+          const result = Array.isArray(rows) && rows.length > 0 ? (rows[0]) : null;
           return new Response(JSON.stringify({
             db_connected: true,
             db_host: DB_HOST,
@@ -1369,12 +1368,13 @@ async function handleApi(request: Request): Promise<Response> {
             found: !!result,
             data: result ? { id: result.id, email: result.email, paid: Number(result.paid), used: Number(result.used) } : null
           }), { headers: { 'Content-Type': 'application/json' } });
-        } catch (error: any) {
+        } catch (error) {
+          const err = error || {};
           return new Response(JSON.stringify({
             db_connected: false,
             db_host: DB_HOST,
-            error: error?.message || 'Unknown',
-            code: error?.code || 'UNKNOWN'
+            error: err.message || 'Unknown',
+            code: err.code || 'UNKNOWN'
           }), { headers: { 'Content-Type': 'application/json' } });
         } finally {
           if (conn) { try { conn.release(); } catch(e) {} }

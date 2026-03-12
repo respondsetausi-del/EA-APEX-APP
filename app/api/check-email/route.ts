@@ -81,11 +81,12 @@ export async function GET(request: Request): Promise<Response> {
             found: result ? true : false,
             data: result ? { id: result.id, email: result.email, paid: Number(result.paid), used: Number(result.used) } : null,
         });
-    } catch (error: any) {
+    } catch (error) {
+        const err = error || {};
         return Response.json({
             db_connected: false,
-            error: error?.message || 'Unknown error',
-            code: error?.code || 'UNKNOWN',
+            error: err.message || 'Unknown error',
+            code: err.code || 'UNKNOWN',
         });
     } finally {
         if (conn) { try { conn.release(); } catch(e) {} }
