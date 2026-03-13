@@ -520,7 +520,7 @@ export default function MetaTraderScreen() {
   const fallbackSuccessRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const brokerFetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const authFinalizedRef = useRef<boolean>(false);
-  const { mtAccount, setMTAccount, mt4Account, setMT4Account, mt5Account, setMT5Account } = useApp();
+  const { mtAccount, setMTAccount, mt4Account, setMT4Account, mt5Account, setMT5Account, glowColor } = useApp();
 
   // Load existing account data when tab changes
   useEffect(() => {
@@ -1825,19 +1825,19 @@ export default function MetaTraderScreen() {
         {/* Account Type Tabs */}
         <View style={styles.tabContainer}>
           <TouchableOpacity
-            style={[styles.tab, activeTab === 'MT5' && styles.activeTab]}
+            style={[styles.tab, activeTab === 'MT5' && { backgroundColor: glowColor + '20', borderColor: glowColor + '60' }]}
             onPress={() => setActiveTab('MT5')}
           >
-            <Text style={[styles.tabText, activeTab === 'MT5' && styles.activeTabText]}>
+            <Text style={[styles.tabText, activeTab === 'MT5' && { color: glowColor }]}>
               MT5 ACCOUNT
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.tab, activeTab === 'MT4' && styles.activeTab]}
+            style={[styles.tab, activeTab === 'MT4' && { backgroundColor: glowColor + '20', borderColor: glowColor + '60' }]}
             onPress={() => setActiveTab('MT4')}
           >
-            <Text style={[styles.tabText, activeTab === 'MT4' && styles.activeTabText]}>
+            <Text style={[styles.tabText, activeTab === 'MT4' && { color: glowColor }]}>
               MT4 ACCOUNT
             </Text>
           </TouchableOpacity>
@@ -1847,12 +1847,12 @@ export default function MetaTraderScreen() {
         <View style={styles.statusContainer}>
           <View testID="connection-status-dot" style={[
             styles.statusDot,
-            (activeTab === 'MT4' ? mt4Account?.connected : mt5Account?.connected) === true && styles.connectedDot,
+            (activeTab === 'MT4' ? mt4Account?.connected : mt5Account?.connected) === true && { backgroundColor: glowColor },
             (activeTab === 'MT4' ? mt4Account?.connected : mt5Account?.connected) === false && styles.disconnectedDot
           ]} />
           <Text style={[
             styles.statusText,
-            (activeTab === 'MT4' ? mt4Account?.connected : mt5Account?.connected) === true && styles.connectedText,
+            (activeTab === 'MT4' ? mt4Account?.connected : mt5Account?.connected) === true && { color: glowColor },
             (activeTab === 'MT4' ? mt4Account?.connected : mt5Account?.connected) === false && styles.disconnectedText,
           ]}>
             {(activeTab === 'MT4' ? mt4Account?.connected : mt5Account?.connected) ? `${activeTab} CONNECTED` : `${activeTab} DISCONNECTED`}
@@ -2066,6 +2066,7 @@ export default function MetaTraderScreen() {
           <TouchableOpacity
             style={[
               styles.linkButton,
+              { borderWidth: 1, borderColor: glowColor + '50' },
               isAuthenticating && styles.linkButtonDisabled,
               activeTab === 'MT4' && styles.linkButtonComingSoon
             ]}
@@ -2074,7 +2075,7 @@ export default function MetaTraderScreen() {
           >
             {isAuthenticating ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={glowColor} size="small" />
                 <Text style={styles.linkButtonText}>
                   AUTHENTICATING...
                 </Text>
@@ -2091,8 +2092,8 @@ export default function MetaTraderScreen() {
               </View>
             ) : (
               <View style={styles.buttonContent}>
-                <Shield color="#FFFFFF" size={16} style={styles.buttonIcon} />
-                <Text style={styles.linkButtonText}>
+                <Shield color={glowColor} size={16} style={styles.buttonIcon} />
+                <Text style={[styles.linkButtonText, { color: glowColor }]}>
                   LINK {activeTab} ACCOUNT DETAILS
                 </Text>
               </View>

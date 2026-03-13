@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Animated } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Animated, Platform } from 'react-native';
 import { ArrowLeft, Circle, RefreshCw } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -30,7 +30,7 @@ const mockQuotes: Quote[] = [
 ];
 
 export default function QuotesScreen() {
-  const { eas, activeSymbols, mt4Symbols, mt5Symbols } = useApp();
+  const { eas, activeSymbols, mt4Symbols, mt5Symbols, glowColor } = useApp();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [apiSymbols, setApiSymbols] = useState<ApiSymbol[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -230,14 +230,14 @@ export default function QuotesScreen() {
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: glowColor + '30' }]}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <ArrowLeft color="#FFFFFF" size={24} />
+          <ArrowLeft color={glowColor} size={24} />
         </TouchableOpacity>
 
         <View style={styles.headerContent}>
           <View style={styles.titleContainer}>
-            <Text style={styles.headerTitle}>QUOTES</Text>
+            <Text style={[styles.headerTitle, { color: glowColor }]}>QUOTES</Text>
             {primaryEA && (
               <View style={styles.statusContainer}>
                 <Circle
@@ -277,7 +277,7 @@ export default function QuotesScreen() {
               }}
             >
               <RefreshCw
-                color={refreshing ? '#666666' : '#FFFFFF'}
+                color={refreshing ? '#666666' : glowColor}
                 size={20}
               />
             </Animated.View>
@@ -289,7 +289,7 @@ export default function QuotesScreen() {
       <View style={styles.content}>
         {loading && !refreshing ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator testID="quotes-loading" size="large" color="#00FF00" />
+            <ActivityIndicator testID="quotes-loading" size="large" color={glowColor} />
             <Text style={styles.loadingText}>Loading symbols...</Text>
           </View>
         ) : error ? (
@@ -319,7 +319,17 @@ export default function QuotesScreen() {
                   key={quote.symbol}
                   style={[
                     styles.quoteCard,
-                    quote.isActive && styles.activeQuoteCard
+                    { borderColor: glowColor + '30' },
+                    quote.isActive && {
+                      borderColor: glowColor + '80',
+                      shadowColor: glowColor,
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 8,
+                      ...(Platform.OS === 'web' ? {
+                        boxShadow: `0 0 6px 1px ${glowColor}40, 0 0 14px 3px ${glowColor}1A`,
+                      } : {}),
+                    } as any,
                   ]}
                   onPress={() => handleQuoteTap(quote.symbol)}
                   activeOpacity={0.7}
@@ -380,7 +390,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#333333',
   },
   backButton: {
     marginRight: 16,
@@ -395,7 +404,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   headerTitle: {
-    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -465,13 +473,15 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   retryButton: {
-    backgroundColor: '#00FF00',
+    backgroundColor: '#333333',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,191,255,0.5)',
   },
   retryButtonText: {
-    color: '#000000',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -498,7 +508,6 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#333333',
   },
   quoteHeader: {
     flexDirection: 'row',
@@ -519,11 +528,6 @@ const styles = StyleSheet.create({
   activeIndicator: {
     marginLeft: 8,
   },
-  activeQuoteCard: {
-    borderColor: '#00FF00',
-    borderWidth: 1,
-  },
-
   priceContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',

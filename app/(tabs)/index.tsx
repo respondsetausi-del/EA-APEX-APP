@@ -1,11 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Plus, Menu } from 'lucide-react-native';
+import { Plus } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { RobotLogo } from '@/components/robot-logo';
 import { ActionPillBar } from '@/components/action-pill-bar';
-import { SidebarDrawer } from '@/components/sidebar-drawer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApp } from '@/providers/app-provider';
@@ -13,10 +12,7 @@ import { LOGIN_DISABLED } from '@/constants/features';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor } = useApp();
-
-  // Sidebar state
-  const [sidebarVisible, setSidebarVisible] = useState(false);
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -124,10 +120,6 @@ export default function HomeScreen() {
 
   const handleQuotes = () => {
     router.push('/(tabs)/quotes');
-  };
-
-  const handleNavigate = (route: string) => {
-    router.push(route as any);
   };
 
 
@@ -297,25 +289,6 @@ export default function HomeScreen() {
         </View>
 
       </ScrollView>
-
-      {/* Hamburger menu — always visible, top right */}
-      <TouchableOpacity
-        style={[styles.hamburgerButton, { borderColor: glowColor + '40' }]}
-        onPress={() => setSidebarVisible(true)}
-        activeOpacity={0.7}
-      >
-        <Menu color={glowColor} size={18} />
-      </TouchableOpacity>
-
-      {/* Sidebar Drawer */}
-      <SidebarDrawer
-        visible={sidebarVisible}
-        onClose={() => setSidebarVisible(false)}
-        glowColor={glowColor}
-        onColorChange={setGlowColor}
-        onNavigate={handleNavigate}
-        currentRoute="home"
-      />
     </SafeAreaView>
   );
 }
@@ -480,19 +453,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   // bottomActions styles removed — replaced by ActionPillBar component
-  hamburgerButton: {
-    position: 'absolute',
-    right: 16,
-    top: Platform.OS === 'ios' ? 12 : 16,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    zIndex: 50,
-  },
   connectedBotsSection: {
     paddingHorizontal: 20,
     paddingTop: 24,
