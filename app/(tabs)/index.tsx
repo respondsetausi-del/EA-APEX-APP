@@ -272,7 +272,7 @@ export default function HomeScreen() {
 
 
           <TouchableOpacity style={styles.addEAButton} onPress={handleAddNewEA}>
-            <Plus color="#FFFFFF" size={20} />
+            <Plus color="#00BFFF" size={20} />
             <View style={styles.addEATextContainer}>
               <Text style={styles.addEATitle}>ADD A NEW EA</Text>
               <Text style={styles.addEASubtitle}>HAVE A VALID LICENSE KEY</Text>
@@ -555,33 +555,45 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   addEAButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 16,
+    backgroundColor: '#080D1A',
+    borderRadius: 28,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 20,
+    height: 56,
+    paddingHorizontal: 24,
     marginBottom: 20,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 191, 255, 0.5)',
+    gap: 14,
+    shadowColor: '#00BFFF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 8,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 0 6px 1px rgba(0,191,255,0.5), 0 0 18px 4px rgba(0,191,255,0.2)',
+      } as any,
+    }),
   },
   addEATextContainer: {
-    marginLeft: 12,
+    flexDirection: 'column' as const,
+    gap: 2,
   },
   addEATitle: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+    color: '#00BFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textShadowColor: 'rgba(0, 191, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
   },
   addEASubtitle: {
-    color: '#FFFFFF',
+    color: 'rgba(0, 191, 255, 0.55)',
     fontSize: 10,
-    opacity: 0.8,
+    fontWeight: '500',
+    letterSpacing: 0.8,
   },
 
 });
