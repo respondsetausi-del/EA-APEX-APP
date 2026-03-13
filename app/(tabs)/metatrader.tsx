@@ -485,10 +485,9 @@ const DEFAULT_MT4_BROKERS = [
   'TradeFX-SA-Live',
 ];
 
-// MT5 Brokers with URL mapping
+// MT5 Brokers with URL mapping (Fix #8: AccuMarkets removed — migrated to Razor Markets)
 const MT5_BROKER_URLS: Record<string, string> = {
   'RazorMarkets-Live': 'https://webtrader.razormarkets.co.za/terminal/',
-  'AccuMarkets-Live': 'https://webterminal.accumarkets.co.za/terminal/',
 };
 
 const MT5_BROKERS = Object.keys(MT5_BROKER_URLS);
@@ -536,6 +535,54 @@ export default function MetaTraderScreen() {
       setPassword('');
     }
   }, [activeTab, mt4Account, mt5Account]);
+
+  // Fix #2: Session-based proxy URLs (credentials not in GET params)
+  const [mt5SessionUrl, setMT5SessionUrl] = useState('');
+  const [mt4SessionUrl, setMT4SessionUrl] = useState('');
+
+  useEffect(() => {
+    if (!showMT5WebView || Platform.OS !== 'web') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/proxy-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: MT5_BROKER_URLS[server] || MT5_BROKER_URLS['RazorMarkets-Live'],
+            login, password,
+          }),
+        });
+        const data = await res.json();
+        if (!cancelled && data.token) {
+          setMT5SessionUrl(`/api/mt5-proxy?session=${encodeURIComponent(data.token)}`);
+        }
+      } catch (e) { console.error('MT5 session error:', e); }
+    })();
+    return () => { cancelled = true; };
+  }, [showMT5WebView, server, login, password]);
+
+  useEffect(() => {
+    if (!showMT4WebView || Platform.OS !== 'web') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/proxy-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: 'https://metatraderweb.app/trade?version=4',
+            login, password, server,
+          }),
+        });
+        const data = await res.json();
+        if (!cancelled && data.token) {
+          setMT4SessionUrl(`/api/mt4-proxy?session=${encodeURIComponent(data.token)}`);
+        }
+      } catch (e) { console.error('MT4 session error:', e); }
+    })();
+    return () => { cancelled = true; };
+  }, [showMT4WebView, server, login, password]);
 
   // Authentication state tracking
   const [authState, setAuthState] = useState({
@@ -1343,12 +1390,10 @@ export default function MetaTraderScreen() {
                 var allTRs = tableB.querySelectorAll('tr');
                 if (allTRs.length > 0) {
                   // Try to find XAUUSD symbol
-                  var ev = document.createEvent('MouseEvents');
-                  ev.initEvent('dblclick', true, true);
                   for (var i = 0; i < allTRs.length; i++) {
                     var a = allTRs[i].getElementsByTagName('td')[0];
                     if (a && a.textContent && a.textContent.trim() === 'XAUUSD') {
-                      a.dispatchEvent(ev);
+                      a.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
                       sendMessage('authentication_success', 'MT4 Authentication Successful - XAUUSD symbol found and selected');
                       return true;
                     }
@@ -1721,12 +1766,10 @@ export default function MetaTraderScreen() {
               const allTRs = tableB.querySelectorAll('tr');
               if (allTRs.length > 0) {
                 // Try to find XAUUSD symbol
-                const ev = document.createEvent('MouseEvents');
-                ev.initEvent('dblclick', true, true);
                 for (let i = 0; i < allTRs.length; i++) {
                   const a = allTRs[i].getElementsByTagName('td')[0];
                   if (a && a.textContent && a.textContent.trim() === 'XAUUSD') {
-                    a.dispatchEvent(ev);
+                    a.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
                     sendMessage('authentication_success', 'MT4 Authentication Successful - XAUUSD symbol found and selected');
                     return;
                   }
@@ -2089,7 +2132,7 @@ export default function MetaTraderScreen() {
         <View style={styles.invisibleWebViewContainer}>
           {Platform.OS === 'web' ? (
             <WebWebView
-              url={`/api/mt5-proxy?url=${encodeURIComponent(MT5_BROKER_URLS[server] || MT5_BROKER_URLS['RazorMarkets-Live'])}&login=${encodeURIComponent(login)}&password=${encodeURIComponent(password)}`}
+              url={mt5SessionUrl}
               onMessage={onMT5WebViewMessage}
               onLoadEnd={() => console.log('MT5 Web WebView loaded')}
               style={styles.invisibleWebView}
@@ -2136,7 +2179,7 @@ export default function MetaTraderScreen() {
         <View style={styles.invisibleWebViewContainer}>
           {Platform.OS === 'web' ? (
             <WebWebView
-              url={`/api/mt4-proxy?url=${encodeURIComponent('https://metatraderweb.app/trade?version=4')}&login=${encodeURIComponent(login)}&password=${encodeURIComponent(password)}&server=${encodeURIComponent(server)}`}
+              url={mt4SessionUrl}
               onMessage={onMT4WebViewMessage}
               onLoadEnd={() => console.log('MT4 Web WebView loaded')}
               style={styles.invisibleWebView}

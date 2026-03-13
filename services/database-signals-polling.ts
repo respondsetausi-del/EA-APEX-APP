@@ -1,16 +1,4 @@
-import { Platform } from 'react-native';
-
-// Database configuration
-const dbConfig = {
-  host: '172.203.148.37.host.secureserver.net',
-  user: 'eauser',
-  password: 'snVO2i%fZSG%',
-  database: 'eaconverter',
-  port: 3306,
-  connectTimeout: 60000,
-  acquireTimeout: 60000,
-  timeout: 60000,
-};
+// Fix #6: Removed unused hardcoded DB credentials — polling uses /api/ endpoints
 
 export interface DatabaseSignal {
   id: string;

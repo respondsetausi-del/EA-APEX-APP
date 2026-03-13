@@ -145,14 +145,16 @@ class ApiService {
     };
   }
 
+  // Fix #16: Stub — never called. Remove once confirmed unused.
   async getSignals(phoneSecret: string): Promise<SignalsResponse> {
-    // Mock: produce no new signals to avoid network
+    console.warn('apiService.getSignals() is a stub — signals come via database polling service');
     void phoneSecret;
     return { message: 'error' };
   }
 
+  // Fix #17: Stub — never called. Remove once confirmed unused.
   async getApp(email: string, use: boolean = false): Promise<App> {
-    // Mock: pretend app is available for any email
+    console.warn('apiService.getApp() is a stub — returns mock accept');
     void use;
     if (!email) {
       return { message: 'none', version: 1 } as unknown as App;

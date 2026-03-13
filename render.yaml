@@ -4,10 +4,21 @@ services:
     env: docker
     plan: free
     autoDeploy: true
-    healthCheckPath: /
+    healthCheckPath: /health
     envVars:
       - key: EXPO_NO_TELEMETRY
         value: "1"
       - key: NODE_ENV
         value: "production"
+      # Fix #13: DB env vars — set actual values in Render dashboard (never commit secrets)
+      - key: DB_HOST
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_PORT
+        sync: false
 

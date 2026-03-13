@@ -24,23 +24,22 @@ RUN node ./node_modules/.bin/expo export --platform web
 # Run post-build script to set up PWA manifest and icons
 RUN node scripts/post-build.js
 
-# Remove build tools and Node to slim image (keep nodejs for post-build script)
+# Remove build tools to slim image
 RUN apk del python3 make g++
 
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nextjs -u 1001
+# Fix #12: Create non-root user with names matching actual stack (Bun/Expo, not Next.js)
+RUN addgroup -g 1001 -S appgroup
+RUN adduser -S appuser -u 1001
 
 # Change ownership of the app directory
-RUN chown -R nextjs:nodejs /app
-USER nextjs
+RUN chown -R appuser:appgroup /app
+USER appuser
 
-# Serve the static site (Render injects PORT at runtime)
+# Serve the static site (Render injects PORT at runtime, default 3000)
+EXPOSE 3000
 
-# Health check
+# Fix #14: Use shell form so $PORT is resolved at runtime, with fallback to 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:$PORT/ || exit 1
+  CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
 
 CMD ["bun", "run", "serve:dist"]
-
-

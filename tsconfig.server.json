@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "./dist-server",
+    "rootDir": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "types": ["bun-types"]
+  },
+  "include": [
+    "server.ts",
+    "app/api/**/*.ts",
+    "services/ea-converter-proxy.ts"
+  ]
+}

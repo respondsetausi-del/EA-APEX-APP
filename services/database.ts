@@ -1,26 +1,5 @@
-// Networking disabled: database access stubbed
-import { Platform } from 'react-native';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const mysql = null as unknown as any;
-
-// Database configuration
-const dbConfig = {
-  host: '172.203.148.37.host.secureserver.net',
-  user: 'eauser',
-  password: 'snVO2i%fZSG%',
-  database: 'eaconverter',
-  port: 3306,
-  connectTimeout: 60000,
-  acquireTimeout: 60000,
-  timeout: 60000,
-};
-
-// Database connection pool
-let pool: any | null = null;
-
-function getPool(): any {
-  return null;
-}
+// Database access stubbed — all queries go through server.ts API proxy
+// Fix #5: Removed hardcoded credentials (use env vars on server side only)
 
 export interface DatabaseUser {
   id: string;
@@ -207,7 +186,7 @@ class DatabaseService {
   }
 
   async closeConnection(): Promise<void> {
-    pool = null;
+    // No-op: database access is stubbed
   }
 }
 

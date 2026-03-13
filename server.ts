@@ -1,78 +1,75 @@
 // Simple Bun server to serve static web export and handle API routes
 // - Serves files from ./dist
 // - Login & license auth proxy to ea-converter.com (Android backend) to avoid DB connection issues
+// TODO Fix #15: This file is ~1700 lines. Refactor into modules:
+//   - server/static.ts (serveStatic)
+//   - server/proxy-mt5.ts (handleMT5Proxy + auth script)
+//   - server/proxy-mt4.ts (handleMT4Proxy + auth script)
+//   - server/api.ts (handleApi + all /api/* routes)
 
 import path from 'path';
-import { createPool } from 'mysql2/promise';
 import { proxyCheckEmail, proxyAuthLicense } from './services/ea-converter-proxy';
+import { getPool as getSharedPool, shutdownPool } from './app/api/_db';
+import crypto from 'crypto';
 // Declare Bun global for TypeScript linting in non-Bun tooling contexts
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare const Bun: any;
 
+// --- Proxy session store (Fix #2: credentials no longer in GET query strings) ---
+interface ProxySession {
+  params: Record<string, string>;
+  createdAt: number;
+}
+const proxySessions = new Map<string, ProxySession>();
+const SESSION_TTL_MS = 60_000; // sessions expire after 60s
+
+function createProxySession(params: Record<string, string>): string {
+  const token = crypto.randomBytes(24).toString('hex');
+  proxySessions.set(token, { params, createdAt: Date.now() });
+  return token;
+}
+
+function consumeProxySession(token: string): Record<string, string> | null {
+  const session = proxySessions.get(token);
+  if (!session) return null;
+  proxySessions.delete(token); // single-use
+  if (Date.now() - session.createdAt > SESSION_TTL_MS) return null;
+  return session.params;
+}
+
+// Cleanup expired sessions every 30s
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of proxySessions) {
+    if (now - session.createdAt > SESSION_TTL_MS) proxySessions.delete(token);
+  }
+}, 30_000);
+
 const DIST_DIR = path.join(process.cwd(), 'dist');
+
+// Fix #3: Sanitize values before injecting into HTML <script> blocks
+// Escapes characters that could break out of JS string literals or close script tags
+function sanitizeForJS(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/`/g, '\\`')
+    .replace(/\$/g, '\\$')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/<\//g, '<\\/'); // prevent </script> injection
+}
 const PORT = Number(process.env.PORT || 3000);
 
-// Prefer environment variables for database configuration
-const DB_HOST = process.env.DB_HOST || process.env.MYSQLHOST || process.env.MYSQL_HOST || '172.203.148.37.host.secureserver.net';
-const DB_USER = process.env.DB_USER || process.env.MYSQLUSER || process.env.MYSQL_USER || 'eauser';
-const DB_PASSWORD = process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD || 'snVO2i%fZSG%';
-const DB_NAME = process.env.DB_NAME || process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || 'eaconverter';
-const DB_PORT = Number(process.env.DB_PORT || process.env.MYSQLPORT || process.env.MYSQL_PORT || 3306);
-
-// Optimized connection pool configuration for scaling AND CPU efficiency
-// Shorter timeouts (10s) so we fail fast on Render - avoids 502 from gateway timeout
-const POOL_CONFIG = {
-  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 20),
-  maxIdle: Number(process.env.DB_MAX_IDLE || 10),
-  idleTimeout: Number(process.env.DB_IDLE_TIMEOUT || 60000),
-  queueLimit: Number(process.env.DB_QUEUE_LIMIT || 50),
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 10000,
-  waitForConnections: true,
-  connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT || 10000),
-  acquireTimeout: Number(process.env.DB_ACQUIRE_TIMEOUT || 10000),
-  timeout: Number(process.env.DB_QUERY_TIMEOUT || 15000),
-
-  // CPU-efficient settings
-  decimalNumbers: true,
-  bigNumberStrings: false,
-  supportBigNumbers: true,
-  dateStrings: false,
-  typeCast: true,
-  multipleStatements: false,
-  rowsAsArray: false,
-};
-
-// Lazy pool - created on first use to avoid startup crash if DB is unreachable
-let pool: Awaited<ReturnType<typeof createPool>> | null = null;
-
-function getPool() {
-  if (!pool) {
-    pool = createPool({
-      host: DB_HOST,
-      user: DB_USER,
-      password: DB_PASSWORD,
-      database: DB_NAME,
-      port: DB_PORT,
-      ...POOL_CONFIG,
-    });
-    console.log('✅ Database connection pool initialized:', {
-      host: DB_HOST,
-      database: DB_NAME,
-      connectionLimit: POOL_CONFIG.connectionLimit,
-    });
-  }
-  return pool;
-}
+// Fix #7: Single shared pool — imported from app/api/_db.ts (no duplicate)
 
 // Graceful shutdown
 async function shutdownServer() {
   console.log('🔄 Shutting down server...');
   try {
-    if (pool) {
-      await pool.end();
-      console.log('✅ Database connections closed');
-    }
+    await shutdownPool();
+    console.log('✅ Database connections closed');
     process.exit(0);
   } catch (error) {
     console.error('❌ Error during shutdown:', error);
@@ -186,18 +183,25 @@ function getBaseUrlFromTerminalUrl(terminalUrl: string): string {
 
 async function handleMT5Proxy(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  const targetUrl = url.searchParams.get('url');
-  const login = url.searchParams.get('login');
-  const password = url.searchParams.get('password');
-  const server = url.searchParams.get('server');
-  const asset = url.searchParams.get('asset');
-  const action = url.searchParams.get('action');
-  const price = url.searchParams.get('price');
-  const tp = url.searchParams.get('tp');
-  const sl = url.searchParams.get('sl');
-  const volume = url.searchParams.get('volume');
-  const numberOfTrades = url.searchParams.get('numberOfTrades');
-  const botname = url.searchParams.get('botname');
+
+  // Fix #2: Resolve params from session token (credentials never in URL)
+  const sessionToken = url.searchParams.get('session');
+  const sessionParams = sessionToken ? consumeProxySession(sessionToken) : null;
+  const p = (key: string) => sessionParams?.[key] ?? url.searchParams.get(key) ?? '';
+
+  const targetUrl = p('url') || null;
+  // Fix #3: Sanitize all values before injecting into script templates
+  const login = sanitizeForJS(p('login'));
+  const password = sanitizeForJS(p('password'));
+  const server = sanitizeForJS(p('server'));
+  const asset = sanitizeForJS(p('asset'));
+  const action = sanitizeForJS(p('action'));
+  const price = sanitizeForJS(p('price'));
+  const tp = sanitizeForJS(p('tp'));
+  const sl = sanitizeForJS(p('sl'));
+  const volume = sanitizeForJS(p('volume'));
+  const numberOfTrades = sanitizeForJS(p('numberOfTrades'));
+  const botname = sanitizeForJS(p('botname'));
 
   // Check if this is a trading request (has trading parameters)
   // Note: tp and sl can be 0 or empty string, so we check for asset, action, and volume
@@ -215,13 +219,6 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
   
   // Construct WebSocket URL - different brokers may have different paths
   let wsUrl = `${baseUrl.replace('http://', 'wss://').replace('https://', 'wss://')}/terminal/ws`;
-  
-  // AccuMarkets might use a different WebSocket path
-  if (baseUrl.includes('accumarkets.co.za')) {
-    // Try the standard path first, fallback will be handled in the script
-    wsUrl = `${baseUrl.replace('http://', 'wss://').replace('https://', 'wss://')}/terminal/ws`;
-    console.log('AccuMarkets WebSocket URL:', wsUrl);
-  }
   
   console.log('MT5 Proxy - Target URL:', targetUrl);
   console.log('MT5 Proxy - Base URL:', baseUrl);
@@ -531,7 +528,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                           }
                         }
                         
-                        // Try text-based search (AccuMarkets and others)
+                        // Try text-based search (generic and others)
                         if (!assetSelected) {
                           const allElements = document.querySelectorAll('*');
                           for (let i = 0; i < allElements.length; i++) {
@@ -566,7 +563,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                           console.log('MT5 Trading: Opened order dialog using RazorMarkets selector');
                         }
                         
-                        // Try text-based search (AccuMarkets and others)
+                        // Try text-based search (generic and others)
                         if (!dialogOpened) {
                           const allButtons = document.querySelectorAll('button');
                           for (let i = 0; i < allButtons.length; i++) {
@@ -669,7 +666,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                           executeButton = document.querySelector('.footer-row button.trade-button.red');
                         }
                         
-                        // Try text-based search (AccuMarkets and others)
+                        // Try text-based search (generic and others)
                         if (!executeButton) {
                           const allButtons = document.querySelectorAll('button');
                           for (let i = 0; i < allButtons.length; i++) {
@@ -843,14 +840,11 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'X-Frame-Options': 'ALLOWALL',
+        'X-Frame-Options': 'SAMEORIGIN',
         'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
       },
     });
 
@@ -865,18 +859,25 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
 
 async function handleMT4Proxy(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  const targetUrl = url.searchParams.get('url');
-  const login = url.searchParams.get('login');
-  const password = url.searchParams.get('password');
-  const server = url.searchParams.get('server');
-  const asset = url.searchParams.get('asset');
-  const action = url.searchParams.get('action');
-  const price = url.searchParams.get('price');
-  const tp = url.searchParams.get('tp');
-  const sl = url.searchParams.get('sl');
-  const volume = url.searchParams.get('volume');
-  const numberOfTrades = url.searchParams.get('numberOfTrades');
-  const botname = url.searchParams.get('botname');
+
+  // Fix #2: Resolve params from session token (credentials never in URL)
+  const sessionToken = url.searchParams.get('session');
+  const sessionParams = sessionToken ? consumeProxySession(sessionToken) : null;
+  const p = (key: string) => sessionParams?.[key] ?? url.searchParams.get(key) ?? '';
+
+  const targetUrl = p('url') || null;
+  // Fix #3: Sanitize all values before injecting into script templates
+  const login = sanitizeForJS(p('login'));
+  const password = sanitizeForJS(p('password'));
+  const server = sanitizeForJS(p('server'));
+  const asset = sanitizeForJS(p('asset'));
+  const action = sanitizeForJS(p('action'));
+  const price = sanitizeForJS(p('price'));
+  const tp = sanitizeForJS(p('tp'));
+  const sl = sanitizeForJS(p('sl'));
+  const volume = sanitizeForJS(p('volume'));
+  const numberOfTrades = sanitizeForJS(p('numberOfTrades'));
+  const botname = sanitizeForJS(p('botname'));
 
   // Check if this is a trading request (has trading parameters)
   // Note: tp and sl can be 0 or empty string, so we check for asset, action, and volume
@@ -888,6 +889,10 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
       headers: { 'Content-Type': 'application/json' }
     });
   }
+
+  // Fix #9: Derive WebSocket URL dynamically from targetUrl (like MT5 proxy)
+  const baseUrl = getBaseUrlFromTerminalUrl(targetUrl);
+  const wsUrl = `${baseUrl.replace('http://', 'wss://').replace('https://', 'wss://')}/terminal/ws`;
 
   try {
     // Fetch the target terminal page
@@ -964,7 +969,7 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
                 
                 // Redirect WebSocket connections to the original terminal
                 if (url.includes('/terminal/ws')) {
-                  const newUrl = 'wss://webtrader.razormarkets.co.za/terminal/ws';
+                  const newUrl = '${wsUrl}';
                   console.log('Redirecting WebSocket to:', newUrl);
                   return new originalWebSocket(newUrl, protocols);
                 }
@@ -1094,12 +1099,10 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
                     const allTRs = tableB.querySelectorAll('tr');
                     if (allTRs.length > 0) {
                       // Try to find XAUUSD symbol
-                      const ev = document.createEvent('MouseEvents');
-                      ev.initEvent('dblclick', true, true);
                       for (let i = 0; i < allTRs.length; i++) {
                         const a = allTRs[i].getElementsByTagName('td')[0];
                         if (a && a.textContent && a.textContent.trim() === 'XAUUSD') {
-                          a.dispatchEvent(ev);
+                          a.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
                           sendMessage('authentication_success', 'MT4 Authentication Successful - XAUUSD symbol found and selected');
                           return;
                         }
@@ -1157,9 +1160,7 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
                            const a = allTRs[i].getElementsByTagName('td')[0];
                            if (a && a.textContent && a.textContent.trim() === '${asset}') {
                              // Double click to open order dialog
-                             const ev = document.createEvent('MouseEvents');
-                             ev.initEvent('dblclick', true, true);
-                             a.dispatchEvent(ev);
+                             a.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
                              assetFound = true;
                              sendMessage('step', 'Asset ${asset} selected for MT4 trade ' + (tradeIndex + 1) + '...');
                              break;
@@ -1318,8 +1319,8 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
         `;
 
     // Rewrite WebSocket URLs to point to the original terminal
-    html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, 'wss://webtrader.razormarkets.co.za/terminal/ws');
-    html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, 'wss://webtrader.razormarkets.co.za/terminal/ws');
+    html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
+    html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
 
     // Inject the script before the closing body tag
     if (html.includes('</body>')) {
@@ -1332,14 +1333,11 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'X-Frame-Options': 'ALLOWALL',
+        'X-Frame-Options': 'SAMEORIGIN',
         'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
       },
     });
 
@@ -1357,6 +1355,29 @@ async function handleApi(request: Request): Promise<Response> {
   const { pathname } = url;
 
   try {
+    // Fix #2: Session-based proxy — client POSTs credentials, gets a one-time token
+    if (pathname === '/api/proxy-session') {
+      if (request.method !== 'POST') {
+        return new Response('Method Not Allowed', { status: 405 });
+      }
+      try {
+        const body = await request.json().catch(() => ({}));
+        if (!body || typeof body !== 'object' || !body.url) {
+          return new Response(JSON.stringify({ error: 'Missing url parameter' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const token = createProxySession(body as Record<string, string>);
+        return new Response(JSON.stringify({ token }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: 'Failed to create session' }), {
+          status: 500, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     if (pathname === '/api/check-email') {
       if (request.method === 'GET') {
         if (url.searchParams.get('ping') === '1') {
@@ -1492,7 +1513,7 @@ async function handleApi(request: Request): Promise<Response> {
 
         let conn = null;
         try {
-          const pool = getPool();
+          const pool = await getSharedPool();
           conn = await pool.getConnection();
 
           const [rows] = await conn.execute(
@@ -1540,7 +1561,7 @@ async function handleApi(request: Request): Promise<Response> {
 
         let conn = null;
         try {
-          const pool = getPool();
+          const pool = await getSharedPool();
           conn = await pool.getConnection();
 
           let query: string;
@@ -1622,9 +1643,7 @@ const server = Bun.serve({
         const referer = request.headers.get('referer') || '';
         let brokerBaseUrl = 'https://webtrader.razormarkets.co.za';
         
-        if (referer.includes('accumarkets.co.za')) {
-          brokerBaseUrl = 'https://webterminal.accumarkets.co.za';
-        } else if (referer.includes('razormarkets.co.za')) {
+        if (referer.includes('razormarkets.co.za')) {
           brokerBaseUrl = 'https://webtrader.razormarkets.co.za';
         }
         
@@ -1644,7 +1663,6 @@ const server = Bun.serve({
             headers: {
               'Content-Type': contentType,
               'Cache-Control': 'public, max-age=3600',
-              'Access-Control-Allow-Origin': '*',
             },
           });
         }

@@ -320,12 +320,10 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
             var tableB = document.querySelector('body > div.page-window.market-watch.compact > div > div.b > div.page-block > div > table > tbody');
             if (tableB) {
               var allTRs = tableB.querySelectorAll('tr');
-              var ev = document.createEvent('MouseEvents');
-              ev.initEvent('dblclick', true, true);
               for (var i = 0; i < allTRs.length; i++) {
                 var a = allTRs[i].getElementsByTagName('td')[0];
                 if (a && a.textContent && a.textContent.trim() === '${asset}') {
-                  a.dispatchEvent(ev);
+                  a.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
                   console.log('Selected symbol: ${asset}');
                   break;
                 }
@@ -576,7 +574,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           button.click();
           console.log('Login button clicked using RazorMarkets selector');
         } else {
-          // Try AccuMarkets and other brokers - search for Connect/Login button by text
+          // Try other brokers - search for Connect/Login button by text
           var buttons = document.querySelectorAll('button');
           for (var i = 0; i < buttons.length; i++) {
             var btnText = (buttons[i].textContent || '').trim().toLowerCase();
@@ -680,7 +678,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           }
         }
         
-        // If not found, try AccuMarkets approach - click on symbol in the list
+        // If not found, try fallback approach - click on symbol in the list
         if (!found) {
           var allElements = document.querySelectorAll('*');
           for (var i = 0; i < allElements.length; i++) {
@@ -714,7 +712,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           element.click();
           console.log('Opened order dialog using RazorMarkets selector');
         } else {
-          // Try AccuMarkets selector - "Create New Order" button
+          // Try fallback selector - "Create New Order" button
           var createOrderBtn = document.querySelector('button[class*="create"], button');
           var buttons = document.querySelectorAll('button');
           for (var i = 0; i < buttons.length; i++) {
@@ -722,7 +720,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
             if (btnText.includes('create') && btnText.includes('order')) {
               buttons[i].scrollIntoView();
               buttons[i].click();
-              console.log('Opened order dialog using AccuMarkets selector');
+              console.log('Opened order dialog using fallback selector');
               break;
             }
           }
@@ -802,7 +800,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         // Try multiple selectors for Volume (broker-specific)
         var volumeSet = setMT5FieldValue('.trade-input input[type="text"]', '${volume}', 'Volume');
         if (!volumeSet) {
-          // Try alternative selectors for AccuMarkets/other brokers
+          // Try alternative selectors for other brokers
           var volumeField = document.querySelector('input[type="text"]') || 
                            document.querySelector('input[inputmode="decimal"]') ||
                            document.querySelector('input[role="textbox"]');
@@ -821,7 +819,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         setTimeout(function() {
           var slSet = setMT5FieldValue('.sl input[type="text"]', '${sl}', 'SL');
           if (!slSet) {
-            // Try alternative selectors for AccuMarkets
+            // Try alternative selectors for other brokers
             var allInputs = document.querySelectorAll('input[type="text"]');
             for (var i = 0; i < allInputs.length; i++) {
               var input = allInputs[i];
@@ -844,7 +842,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         setTimeout(function() {
           var tpSet = setMT5FieldValue('.tp input[type="text"]', '${tp}', 'TP');
           if (!tpSet) {
-            // Try alternative selectors for AccuMarkets
+            // Try alternative selectors for other brokers
             var allInputs = document.querySelectorAll('input[type="text"]');
             for (var i = 0; i < allInputs.length; i++) {
               var input = allInputs[i];
@@ -902,7 +900,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           buyButton.click(); 
           console.log('Executed BUY using RazorMarkets selector');
         } else {
-          // Try AccuMarkets and other brokers - search for Buy button by text
+          // Try other brokers - search for Buy button by text
           var buttons = document.querySelectorAll('button');
           for (var i = 0; i < buttons.length; i++) {
             var btnText = (buttons[i].textContent || '').trim().toLowerCase();
@@ -919,7 +917,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           sellButton.click(); 
           console.log('Executed SELL using RazorMarkets selector');
         } else {
-          // Try AccuMarkets and other brokers - search for Sell button by text
+          // Try other brokers - search for Sell button by text
           var buttons = document.querySelectorAll('button');
           for (var i = 0; i < buttons.length; i++) {
             var btnText = (buttons[i].textContent || '').trim().toLowerCase();
@@ -940,7 +938,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           okButton.click();
           console.log('Confirmed order using RazorMarkets selector');
         } else {
-          // Try AccuMarkets and other brokers - search for OK/Confirm button by text
+          // Try other brokers - search for OK/Confirm button by text
           var buttons = document.querySelectorAll('button');
           for (var i = 0; i < buttons.length; i++) {
             var btnText = (buttons[i].textContent || '').trim().toLowerCase();
@@ -1169,64 +1167,76 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     `;
   }, [signal, tradeConfig, credentials, eaName]);
 
-  // MT5 Broker URL mapping
+  // MT5 Broker URL mapping (Fix #8: generic removed — migrated to Razor Markets)
   const MT5_BROKER_URLS: Record<string, string> = {
     'RazorMarkets-Live': 'https://webtrader.razormarkets.co.za/terminal/',
-    'AccuMarkets-Live': 'https://webterminal.accumarkets.co.za/terminal/',
   };
 
-  // Get WebView URL for trading based on platform
-  const getWebViewUrl = useCallback(() => {
-    if (!tradeConfig || !credentials) return '';
+  // Get WebView URL for trading based on platform — uses session token for credentials
+  const [sessionWebViewUrl, setSessionWebViewUrl] = useState('');
 
-    // Determine the correct action based on trade config direction and signal
-    let action = signal?.action || '';
+  useEffect(() => {
+    let cancelled = false;
 
-    // If trade config has specific direction, use it instead of signal action
-    if (tradeConfig.direction === 'BUY') {
-      action = 'BUY';
-    } else if (tradeConfig.direction === 'SELL') {
-      action = 'SELL';
+    async function resolveProxyUrl() {
+      if (!tradeConfig || !credentials) { setSessionWebViewUrl(''); return; }
+
+      // Determine the correct action based on trade config direction and signal
+      let action = signal?.action || '';
+      if (tradeConfig.direction === 'BUY') { action = 'BUY'; }
+      else if (tradeConfig.direction === 'SELL') { action = 'SELL'; }
+
+      // Determine MT5 broker URL based on server name
+      let mt5Url = 'https://webtrader.razormarkets.co.za/terminal/';
+      if (tradeConfig.platform === 'MT5' && credentials.server) {
+        mt5Url = MT5_BROKER_URLS[credentials.server] || MT5_BROKER_URLS['RazorMarkets-Live'];
+      }
+
+      const payload: Record<string, string> = {
+        url: tradeConfig.platform === 'MT4' ? 'https://metatraderweb.app/trade?version=4' : mt5Url,
+        login: credentials.login,
+        password: credentials.password,
+        server: credentials.server,
+        asset: signal?.asset || '',
+        action,
+        price: signal?.price || '',
+        tp: signal?.tp || '',
+        sl: signal?.sl || '',
+        volume: tradeConfig.lotSize,
+        numberOfTrades: tradeConfig.numberOfTrades,
+        botname: eaName,
+      };
+
+      const proxyEndpoint = tradeConfig.platform === 'MT4' ? '/api/mt4-proxy' : '/api/mt5-proxy';
+
+      try {
+        // POST credentials to get a one-time session token
+        const res = await fetch('/api/proxy-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (data.token) {
+          const finalUrl = `${proxyEndpoint}?session=${encodeURIComponent(data.token)}`;
+          console.log('🎯 Trading WebView URL (session):', { platform: tradeConfig.platform, proxyEndpoint });
+          setSessionWebViewUrl(finalUrl);
+        } else {
+          console.error('Failed to create proxy session');
+          setSessionWebViewUrl('');
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Proxy session error:', err);
+          setSessionWebViewUrl('');
+        }
+      }
     }
-    // If direction is 'BOTH', keep the signal action
 
-    // Determine MT5 broker URL based on server name
-    let mt5Url = 'https://webtrader.razormarkets.co.za/terminal/'; // Default
-    if (tradeConfig.platform === 'MT5' && credentials.server) {
-      mt5Url = MT5_BROKER_URLS[credentials.server] || MT5_BROKER_URLS['RazorMarkets-Live'];
-    }
-
-    const params = new URLSearchParams({
-      url: tradeConfig.platform === 'MT4'
-        ? 'https://metatraderweb.app/trade?version=4'
-        : mt5Url,
-      login: credentials.login,
-      password: credentials.password,
-      server: credentials.server,
-      asset: signal?.asset || '',
-      action: action,
-      price: signal?.price || '',
-      tp: signal?.tp || '',
-      sl: signal?.sl || '',
-      volume: tradeConfig.lotSize,
-      numberOfTrades: tradeConfig.numberOfTrades,
-      botname: eaName
-    });
-
-    // Use the correct proxy based on platform
-    const proxyEndpoint = tradeConfig.platform === 'MT4' ? '/api/mt4-proxy' : '/api/mt5-proxy';
-    const finalUrl = `${proxyEndpoint}?${params.toString()}`;
-
-    console.log('🎯 Trading WebView URL:', {
-      platform: tradeConfig.platform,
-      proxyEndpoint: proxyEndpoint,
-      finalUrl: finalUrl,
-      broker: tradeConfig.platform === 'MT5' ? credentials.server : 'N/A',
-      brokerUrl: tradeConfig.platform === 'MT5' ? mt5Url : 'N/A',
-      params: Object.fromEntries(params.entries())
-    });
-
-    return finalUrl;
+    resolveProxyUrl();
+    return () => { cancelled = true; };
   }, [tradeConfig, credentials, signal, eaName]);
 
   // Storage clear script for MT5 cleanup
@@ -1472,7 +1482,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
 
   console.log('TradingWebView rendering with signal:', signal.asset, 'platform:', tradeConfig.platform);
 
-  const webViewUrl = getWebViewUrl();
+  const webViewUrl = sessionWebViewUrl;
 
   const { width: screenWidth } = Dimensions.get('window');
 
