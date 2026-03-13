@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Play, Square, TrendingUp, Trash2, Plus, Info } from 'lucide-react-native';
+import { Plus, Info } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { RobotLogo } from '@/components/robot-logo';
+import { ActionPillBar } from '@/components/action-pill-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApp } from '@/providers/app-provider';
@@ -193,38 +194,20 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              <View style={styles.bottomActions}>
-                <TouchableOpacity
-                  testID="action-start"
-                  style={[styles.actionButton, styles.tradeButton]}
-                  onPress={() => {
-                    console.log('Start/Stop button pressed, current state:', isBotActive);
-                    try {
-                      setBotActive(!isBotActive);
-                      console.log('Bot active state changed to:', !isBotActive);
-                    } catch (error) {
-                      console.error('Error changing bot state:', error);
-                    }
-                  }}
-                >
-                  {isBotActive ? (
-                    <Square color="#000000" size={20} />
-                  ) : (
-                    <Play color="#000000" size={20} />
-                  )}
-                  <Text style={styles.tradeButtonText}>{isBotActive ? 'STOP' : 'TRADE'}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity testID="action-quotes" style={[styles.actionButton, styles.secondaryButton]} onPress={handleQuotes}>
-                  <TrendingUp color="#FFFFFF" size={20} />
-                  <Text style={styles.secondaryButtonText}>QUOTES</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity testID="action-remove" style={[styles.actionButton, styles.secondaryButton]} onPress={handleRemoveActiveBot}>
-                  <Trash2 color="#FFFFFF" size={20} />
-                  <Text style={styles.secondaryButtonText}>REMOVE</Text>
-                </TouchableOpacity>
-              </View>
+              <ActionPillBar
+                isBotActive={isBotActive}
+                onTrade={() => {
+                  console.log('Start/Stop button pressed, current state:', isBotActive);
+                  try {
+                    setBotActive(!isBotActive);
+                    console.log('Bot active state changed to:', !isBotActive);
+                  } catch (error) {
+                    console.error('Error changing bot state:', error);
+                  }
+                }}
+                onQuotes={handleQuotes}
+                onRemove={handleRemoveActiveBot}
+              />
 
               <TouchableOpacity style={styles.infoButton}>
                 <Info color="#FFFFFF" size={16} />
@@ -461,46 +444,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.5,
   },
-  bottomActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 30,
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  tradeButton: {
-    backgroundColor: '#FFFFFF',
-  },
-  secondaryButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  tradeButtonText: {
-    color: '#000000',
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  secondaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
+  // bottomActions styles removed — replaced by ActionPillBar component
   infoButton: {
     position: 'absolute',
     right: 20,
