@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Plus, Info } from 'lucide-react-native';
+import { Plus, Menu } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { RobotLogo } from '@/components/robot-logo';
 import { ActionPillBar } from '@/components/action-pill-bar';
+import { SidebarDrawer } from '@/components/sidebar-drawer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApp } from '@/providers/app-provider';
@@ -12,7 +13,10 @@ import { LOGIN_DISABLED } from '@/constants/features';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor } = useApp();
+
+  // Sidebar state
+  const [sidebarVisible, setSidebarVisible] = useState(false);
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -122,6 +126,9 @@ export default function HomeScreen() {
     router.push('/(tabs)/quotes');
   };
 
+  const handleNavigate = (route: string) => {
+    router.push(route as any);
+  };
 
 
   // Show splash screen for first-time users
@@ -207,11 +214,8 @@ export default function HomeScreen() {
                 }}
                 onQuotes={handleQuotes}
                 onRemove={handleRemoveActiveBot}
+                glowColor={glowColor}
               />
-
-              <TouchableOpacity style={styles.infoButton}>
-                <Info color="#FFFFFF" size={16} />
-              </TouchableOpacity>
             </View>
           </View>
         ) : (
@@ -271,16 +275,47 @@ export default function HomeScreen() {
 
 
 
-          <TouchableOpacity style={styles.addEAButton} onPress={handleAddNewEA}>
-            <Plus color="#00BFFF" size={20} />
+          <TouchableOpacity
+            style={[
+              styles.addEAButton,
+              {
+                borderColor: glowColor + '80',
+                shadowColor: glowColor,
+              },
+              Platform.OS === 'web' ? {
+                boxShadow: `0 0 6px 1px ${glowColor}80, 0 0 18px 4px ${glowColor}33`,
+              } as any : {},
+            ]}
+            onPress={handleAddNewEA}
+          >
+            <Plus color={glowColor} size={20} />
             <View style={styles.addEATextContainer}>
-              <Text style={styles.addEATitle}>ADD A NEW EA</Text>
-              <Text style={styles.addEASubtitle}>HAVE A VALID LICENSE KEY</Text>
+              <Text style={[styles.addEATitle, { color: glowColor, textShadowColor: glowColor + '80' }]}>ADD A NEW EA</Text>
+              <Text style={[styles.addEASubtitle, { color: glowColor + '8C' }]}>HAVE A VALID LICENSE KEY</Text>
             </View>
           </TouchableOpacity>
         </View>
 
       </ScrollView>
+
+      {/* Hamburger menu — always visible, top right */}
+      <TouchableOpacity
+        style={[styles.hamburgerButton, { borderColor: glowColor + '40' }]}
+        onPress={() => setSidebarVisible(true)}
+        activeOpacity={0.7}
+      >
+        <Menu color={glowColor} size={18} />
+      </TouchableOpacity>
+
+      {/* Sidebar Drawer */}
+      <SidebarDrawer
+        visible={sidebarVisible}
+        onClose={() => setSidebarVisible(false)}
+        glowColor={glowColor}
+        onColorChange={setGlowColor}
+        onNavigate={handleNavigate}
+        currentRoute="home"
+      />
     </SafeAreaView>
   );
 }
@@ -445,23 +480,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   // bottomActions styles removed — replaced by ActionPillBar component
-  infoButton: {
+  hamburgerButton: {
     position: 'absolute',
-    right: 20,
-    top: 60,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    right: 16,
+    top: Platform.OS === 'ios' ? 12 : 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
+    borderWidth: 1,
+    zIndex: 50,
   },
   connectedBotsSection: {
     paddingHorizontal: 20,
@@ -563,34 +593,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(0, 191, 255, 0.5)',
     gap: 14,
-    shadowColor: '#00BFFF',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 10,
     elevation: 8,
-    ...Platform.select({
-      web: {
-        boxShadow: '0 0 6px 1px rgba(0,191,255,0.5), 0 0 18px 4px rgba(0,191,255,0.2)',
-      } as any,
-    }),
   },
   addEATextContainer: {
     flexDirection: 'column' as const,
     gap: 2,
   },
   addEATitle: {
-    color: '#00BFFF',
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 1.2,
-    textShadowColor: 'rgba(0, 191, 255, 0.5)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 6,
   },
   addEASubtitle: {
-    color: 'rgba(0, 191, 255, 0.55)',
     fontSize: 10,
     fontWeight: '500',
     letterSpacing: 0.8,
