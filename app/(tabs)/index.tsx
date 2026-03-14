@@ -21,6 +21,7 @@ export default function HomeScreen() {
   console.log('HomeScreen render - EAs count:', eas?.length || 0, 'Primary EA:', primaryEA?.name || 'none');
 
   const [logoError, setLogoError] = useState<boolean>(false);
+  const [avatarError, setAvatarError] = useState<boolean>(false);
   const [hasCheckedAuth, setHasCheckedAuth] = useState<boolean>(false);
 
   // Check if user has completed email authentication
@@ -264,8 +265,44 @@ export default function HomeScreen() {
             </>
           )}
 
-
-
+          {/* EA Status Pill */}
+          {primaryEA && (
+            <View
+              style={[
+                styles.eaStatusPill,
+                {
+                  borderColor: glowColor + '80',
+                  shadowColor: glowColor,
+                },
+                Platform.OS === 'web' ? {
+                  boxShadow: `0 0 6px 1px ${glowColor}80, 0 0 18px 4px ${glowColor}33`,
+                } as any : {},
+              ]}
+            >
+              <View style={[styles.eaAvatarBox, { borderColor: glowColor + '66' }]}>
+                {primaryEAImage && !avatarError ? (
+                  <Image
+                    source={{ uri: primaryEAImage }}
+                    style={styles.eaAvatarImage}
+                    onError={() => setAvatarError(true)}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.eaAvatarFallback}>
+                    <View style={[styles.eaAvatarEye, { backgroundColor: glowColor }]} />
+                    <View style={[styles.eaAvatarEye, { backgroundColor: glowColor }]} />
+                  </View>
+                )}
+              </View>
+              <View style={styles.eaStatusTextBlock}>
+                <Text style={styles.eaStatusName} numberOfLines={1} ellipsizeMode="tail">{primaryEA.name}</Text>
+                <Text style={[styles.eaStatusLabel, { color: glowColor + '8C' }]}>
+                  {isBotActive ? 'ACTIVE' : 'IDLE'}
+                </Text>
+              </View>
+              <View style={[styles.eaStatusDot, { backgroundColor: isBotActive ? glowColor : glowColor + '80' }]} />
+            </View>
+          )}
 
           <TouchableOpacity
             style={[
@@ -543,6 +580,69 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     numberOfLines: 2,
     textAlign: 'center',
+  },
+  eaStatusPill: {
+    backgroundColor: '#080D1A',
+    borderRadius: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 56,
+    paddingHorizontal: 20,
+    marginBottom: 12,
+    borderWidth: 1,
+    gap: 12,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  eaAvatarBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#0C1425',
+    borderWidth: 1,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eaAvatarImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+  },
+  eaAvatarFallback: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  eaAvatarEye: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  eaStatusTextBlock: {
+    flex: 1,
+    flexDirection: 'column',
+    gap: 2,
+    minWidth: 0,
+  },
+  eaStatusName: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  eaStatusLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1.5,
+  },
+  eaStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   addEAButton: {
     backgroundColor: '#080D1A',
