@@ -189,6 +189,31 @@ export default function HomeScreen() {
                 end={{ x: 0.5, y: 1 }}
               />
               <View style={styles.topSection}>
+                {/* Circle avatar */}
+                <View style={[styles.heroAvatarRing, {
+                  borderColor: glowColor + '50',
+                  shadowColor: glowColor,
+                  ...Platform.OS === 'web' ? {
+                    background: `linear-gradient(135deg, ${glowColor}B3, ${glowColor}33, ${glowColor}B3)`,
+                    boxShadow: `0 0 8px 2px ${glowColor}80, 0 0 24px 6px ${glowColor}33`,
+                  } as any : {},
+                }]}>
+                  <View style={styles.heroAvatarInner}>
+                    {primaryEAImage && !logoError ? (
+                      <Image
+                        source={{ uri: primaryEAImage }}
+                        style={styles.heroAvatarImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.heroAvatarFallback}>
+                        <View style={[styles.heroAvatarEye, { backgroundColor: glowColor }]} />
+                        <View style={[styles.heroAvatarEye, { backgroundColor: glowColor }]} />
+                      </View>
+                    )}
+                  </View>
+                </View>
+
                 <View style={styles.titleBlock}>
                   <Text testID="ea-title" style={styles.botMainName} numberOfLines={3} ellipsizeMode="tail">{primaryEA.name}</Text>
                 </View>
@@ -408,7 +433,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 120,
+    height: 200,
     width: width,
     zIndex: -1,
   },
@@ -435,19 +460,20 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 350,
+    height: 450,
     justifyContent: 'space-between',
-    paddingTop: 40,
+    paddingTop: 20,
     paddingBottom: 30,
     zIndex: 10,
   },
   topSection: {
     alignItems: 'center',
-    marginTop: 120,
+    marginTop: 10,
   },
 
   titleBlock: {
     alignItems: 'center',
+    marginTop: 14,
   },
   botMainName: {
     color: '#FFFFFF',
@@ -580,6 +606,43 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     numberOfLines: 2,
     textAlign: 'center',
+  },
+  heroAvatarRing: {
+    width: 206,
+    height: 206,
+    borderRadius: 103,
+    padding: 3,
+    borderWidth: 0,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 10,
+    backgroundColor: 'rgba(0,191,255,0.25)',
+  },
+  heroAvatarInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 100,
+    overflow: 'hidden',
+    backgroundColor: '#080D1A',
+  },
+  heroAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 100,
+  },
+  heroAvatarFallback: {
+    width: '100%',
+    height: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  heroAvatarEye: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
   },
   eaStatusPill: {
     backgroundColor: '#080D1A',
