@@ -7,7 +7,7 @@ import { useApp } from "@/providers/app-provider";
 import { SidebarDrawer } from "@/components/sidebar-drawer";
 
 export default function TabLayout() {
-  const { glowColor, setGlowColor } = useApp();
+  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar } = useApp();
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const pathname = usePathname();
 
@@ -49,6 +49,8 @@ export default function TabLayout() {
           setSidebarVisible(false);
         }}
         currentRoute={currentRoute}
+        showHeroAvatar={showHeroAvatar}
+        onToggleHeroAvatar={setShowHeroAvatar}
       />
     </View>
   );

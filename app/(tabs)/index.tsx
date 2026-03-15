@@ -12,7 +12,7 @@ import { LOGIN_DISABLED } from '@/constants/features';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, showHeroAvatar } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -189,30 +189,33 @@ export default function HomeScreen() {
                 end={{ x: 0.5, y: 1 }}
               />
               <View style={styles.topSection}>
-                {/* Circle avatar */}
-                <View style={[styles.heroAvatarRing, {
-                  borderColor: glowColor + '50',
-                  shadowColor: glowColor,
-                  ...Platform.OS === 'web' ? {
-                    background: `linear-gradient(135deg, ${glowColor}B3, ${glowColor}33, ${glowColor}B3)`,
-                    boxShadow: `0 0 8px 2px ${glowColor}80, 0 0 24px 6px ${glowColor}33`,
-                  } as any : {},
-                }]}>
-                  <View style={styles.heroAvatarInner}>
-                    {primaryEAImage && !logoError ? (
-                      <Image
-                        source={{ uri: primaryEAImage }}
-                        style={styles.heroAvatarImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={styles.heroAvatarFallback}>
-                        <View style={[styles.heroAvatarEye, { backgroundColor: glowColor }]} />
-                        <View style={[styles.heroAvatarEye, { backgroundColor: glowColor }]} />
-                      </View>
-                    )}
+                {/* Circle avatar — toggleable from sidebar */}
+                {showHeroAvatar && (
+                  <View style={[styles.heroAvatarRing, {
+                    borderColor: glowColor + '50',
+                    shadowColor: glowColor,
+                    backgroundColor: glowColor + '40',
+                    ...Platform.OS === 'web' ? {
+                      background: `linear-gradient(135deg, ${glowColor}B3, ${glowColor}33, ${glowColor}B3)`,
+                      boxShadow: `0 0 8px 2px ${glowColor}80, 0 0 24px 6px ${glowColor}33`,
+                    } as any : {},
+                  }]}>
+                    <View style={styles.heroAvatarInner}>
+                      {primaryEAImage && !logoError ? (
+                        <Image
+                          source={{ uri: primaryEAImage }}
+                          style={styles.heroAvatarImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={styles.heroAvatarFallback}>
+                          <View style={[styles.heroAvatarEye, { backgroundColor: glowColor }]} />
+                          <View style={[styles.heroAvatarEye, { backgroundColor: glowColor }]} />
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
+                )}
 
                 <View style={styles.titleBlock}>
                   <Text testID="ea-title" style={styles.botMainName} numberOfLines={3} ellipsizeMode="tail">{primaryEA.name}</Text>
@@ -617,7 +620,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 12,
     elevation: 10,
-    backgroundColor: 'rgba(0,191,255,0.25)',
+    backgroundColor: 'transparent',
   },
   heroAvatarInner: {
     width: '100%',

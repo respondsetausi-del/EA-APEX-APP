@@ -31,6 +31,8 @@ interface SidebarDrawerProps {
   onColorChange: (color: string) => void;
   onNavigate: (route: string) => void;
   currentRoute?: string;
+  showHeroAvatar?: boolean;
+  onToggleHeroAvatar?: (show: boolean) => void;
 }
 
 export function SidebarDrawer({
@@ -40,6 +42,8 @@ export function SidebarDrawer({
   onColorChange,
   onNavigate,
   currentRoute = 'home',
+  showHeroAvatar = true,
+  onToggleHeroAvatar,
 }: SidebarDrawerProps) {
   const slideAnim = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
@@ -183,6 +187,27 @@ export function SidebarDrawer({
             );
           })}
         </View>
+
+        {/* Divider */}
+        <View style={[styles.divider, { backgroundColor: glowColor + '30' }]} />
+
+        {/* Avatar Toggle */}
+        <TouchableOpacity
+          style={styles.toggleRow}
+          activeOpacity={0.7}
+          onPress={() => onToggleHeroAvatar?.(!showHeroAvatar)}
+        >
+          <Text style={styles.toggleLabel}>Avatar Circle</Text>
+          <View style={[
+            styles.toggleTrack,
+            { backgroundColor: showHeroAvatar ? glowColor : 'rgba(255,255,255,0.15)' },
+          ]}>
+            <View style={[
+              styles.toggleThumb,
+              { transform: [{ translateX: showHeroAvatar ? 14 : 0 }] },
+            ]} />
+          </View>
+        </TouchableOpacity>
       </Animated.View>
     </View>
   );
@@ -269,6 +294,37 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  toggleLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    fontFamily: Platform.select({
+      ios: 'System',
+      android: 'Roboto',
+      web: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    }),
+  },
+  toggleTrack: {
+    width: 36,
+    height: 22,
+    borderRadius: 11,
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  toggleThumb: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#FFFFFF',
   },
 });
 
