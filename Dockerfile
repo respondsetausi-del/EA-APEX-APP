@@ -11,9 +11,9 @@ ENV EXPO_NO_TELEMETRY=1
 WORKDIR /app
 
 # Install dependencies first (better layer cache)
-COPY package.json bun.lock ./
-# Ensure devDependencies (e.g., @expo/cli) are installed for the build step
-RUN NODE_ENV=development bun install --frozen-lockfile
+COPY package.json bun.lock* package-lock.json* ./
+# Install all deps including devDependencies for the build step
+RUN NODE_ENV=development bun install
 
 # Copy the rest of the source
 COPY . .
