@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Video, ResizeMode } from 'expo-av';
 import { Plus } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { RobotLogo } from '@/components/robot-logo';
@@ -12,7 +13,7 @@ import { LOGIN_DISABLED } from '@/constants/features';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, showHeroAvatar } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, showHeroAvatar, backgroundVideo } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -156,7 +157,22 @@ export default function HomeScreen() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {primaryEA ? (
           <View style={styles.mainEAContainer}>
-            {primaryEAImage && !logoError ? (
+            {/* Background: Video > EA Image > Fallback */}
+            {backgroundVideo ? (
+              <View style={styles.hero}>
+                <Video
+                  source={{ uri: backgroundVideo }}
+                  style={StyleSheet.absoluteFill}
+                  resizeMode={ResizeMode.COVER}
+                  shouldPlay
+                  isLooping
+                  isMuted
+                />
+                <View style={styles.heroOverlay}>
+                  <View style={styles.gradientOverlay} />
+                </View>
+              </View>
+            ) : primaryEAImage && !logoError ? (
               <ImageBackground
                 testID="ea-hero-bg"
                 source={{ uri: primaryEAImage }}
@@ -188,8 +204,9 @@ export default function HomeScreen() {
                 start={{ x: 0.5, y: 0 }}
                 end={{ x: 0.5, y: 1 }}
               />
+
+              {/* Top area: circle (optional) fills space, name always at bottom */}
               <View style={styles.topSection}>
-                {/* Circle avatar — toggleable from sidebar */}
                 {showHeroAvatar && (
                   <View style={[styles.heroAvatarRing, {
                     borderColor: glowColor + '50',
@@ -420,6 +437,7 @@ const styles = StyleSheet.create({
   hero: {
     width: '100%',
     height: 500,
+    overflow: 'hidden',
   },
   heroOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -470,8 +488,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   topSection: {
+    flex: 1,
     alignItems: 'center',
-    marginTop: 10,
+    justifyContent: 'flex-end',
   },
 
   titleBlock: {

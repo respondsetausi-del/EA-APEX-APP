@@ -89,6 +89,8 @@ interface AppState {
   setGlowColor: (color: string) => void;
   showHeroAvatar: boolean;
   setShowHeroAvatar: (show: boolean) => void;
+  backgroundVideo: string | null;
+  setBackgroundVideo: (uri: string | null) => void;
   setUser: (user: User) => void;
   addEA: (ea: EA) => Promise<boolean>;
   removeEA: (id: string) => Promise<boolean>;
@@ -133,6 +135,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [isDatabaseSignalsPolling, setIsDatabaseSignalsPolling] = useState<boolean>(false);
   const [glowColor, setGlowColorState] = useState<string>('#00BFFF');
   const [showHeroAvatar, setShowHeroAvatarState] = useState<boolean>(true);
+  const [backgroundVideo, setBackgroundVideoState] = useState<string | null>(null);
 
   // Load persisted data on mount
   useEffect(() => {
@@ -144,7 +147,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       console.log('Loading persisted data...');
 
       // Load all data in parallel but handle each independently
-      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData] = await Promise.allSettled([
+      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData] = await Promise.allSettled([
         AsyncStorage.getItem('user'),
         AsyncStorage.getItem('eas'),
         AsyncStorage.getItem('mtAccount'),
@@ -156,7 +159,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         AsyncStorage.getItem('mt5Symbols'),
         AsyncStorage.getItem('isBotActive'),
         AsyncStorage.getItem('glowColor'),
-        AsyncStorage.getItem('showHeroAvatar')
+        AsyncStorage.getItem('showHeroAvatar'),
+        AsyncStorage.getItem('backgroundVideo')
       ]);
 
       // Handle user data
@@ -367,6 +371,12 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         } catch (e) {
           console.error('Error parsing hero avatar setting:', e);
         }
+      }
+
+      // Handle background video
+      if (bgVideoData.status === 'fulfilled' && bgVideoData.value) {
+        setBackgroundVideoState(bgVideoData.value);
+        console.log('Background video loaded:', bgVideoData.value);
       }
 
       console.log('Persisted data loading completed');
@@ -792,6 +802,22 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     }
   }, []);
 
+  const setBackgroundVideo = useCallback(async (uri: string | null) => {
+    setBackgroundVideoState(uri);
+    try {
+      if (uri) {
+        await AsyncStorage.setItem('backgroundVideo', uri);
+        // Force avatar on when video is set
+        setShowHeroAvatarState(true);
+        await AsyncStorage.setItem('showHeroAvatar', JSON.stringify(true));
+      } else {
+        await AsyncStorage.removeItem('backgroundVideo');
+      }
+    } catch (e) {
+      console.error('Error saving background video:', e);
+    }
+  }, []);
+
   const startSignalsMonitoring = useCallback((phoneSecret: string) => {
     console.log('Starting signals monitoring with phone secret:', phoneSecret);
 
@@ -930,6 +956,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setGlowColor,
     showHeroAvatar,
     setShowHeroAvatar,
+    backgroundVideo,
+    setBackgroundVideo,
     setUser,
     addEA,
     removeEA,
@@ -952,5 +980,5 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     dismissNewSignal,
     setTradingSignal: setTradingSignalCallback,
     setShowTradingWebView: setShowTradingWebViewCallback,
-  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback]);
+  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback]);
 });

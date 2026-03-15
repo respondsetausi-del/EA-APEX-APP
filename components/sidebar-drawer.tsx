@@ -8,8 +8,10 @@ import {
   Dimensions,
   Platform,
   TouchableWithoutFeedback,
+  Alert,
 } from 'react-native';
-import { X, Home, TrendingUp, Settings, Info } from 'lucide-react-native';
+import { X, Home, TrendingUp, Settings, Info, Film, Trash2 } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.75, 280);
@@ -33,6 +35,8 @@ interface SidebarDrawerProps {
   currentRoute?: string;
   showHeroAvatar?: boolean;
   onToggleHeroAvatar?: (show: boolean) => void;
+  backgroundVideo?: string | null;
+  onSetBackgroundVideo?: (uri: string | null) => void;
 }
 
 export function SidebarDrawer({
@@ -44,6 +48,8 @@ export function SidebarDrawer({
   currentRoute = 'home',
   showHeroAvatar = true,
   onToggleHeroAvatar,
+  backgroundVideo = null,
+  onSetBackgroundVideo,
 }: SidebarDrawerProps) {
   const slideAnim = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
@@ -77,6 +83,29 @@ export function SidebarDrawer({
       ]).start();
     }
   }, [visible]);
+
+  const hasVideo = !!backgroundVideo;
+
+  const handlePickVideo = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please allow access to your media library to upload a video.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        allowsEditing: false,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets && result.assets[0]) {
+        onSetBackgroundVideo?.(result.assets[0].uri);
+      }
+    } catch (e) {
+      console.error('Video pick error:', e);
+      Alert.alert('Error', 'Failed to pick video.');
+    }
+  };
 
   if (!visible) return null;
 
@@ -193,14 +222,19 @@ export function SidebarDrawer({
 
         {/* Avatar Toggle */}
         <TouchableOpacity
-          style={styles.toggleRow}
-          activeOpacity={0.7}
-          onPress={() => onToggleHeroAvatar?.(!showHeroAvatar)}
+          style={[styles.toggleRow, hasVideo && styles.toggleRowDisabled]}
+          activeOpacity={hasVideo ? 1 : 0.7}
+          onPress={() => {
+            if (!hasVideo) onToggleHeroAvatar?.(!showHeroAvatar);
+          }}
         >
-          <Text style={styles.toggleLabel}>Avatar Circle</Text>
+          <View style={{ flexDirection: 'column' }}>
+            <Text style={[styles.toggleLabel, hasVideo && { color: 'rgba(255,255,255,0.25)' }]}>Avatar Circle</Text>
+            {hasVideo && <Text style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10, marginTop: 2 }}>Required with video</Text>}
+          </View>
           <View style={[
             styles.toggleTrack,
-            { backgroundColor: showHeroAvatar ? glowColor : 'rgba(255,255,255,0.15)' },
+            { backgroundColor: showHeroAvatar ? (hasVideo ? glowColor + '60' : glowColor) : 'rgba(255,255,255,0.15)' },
           ]}>
             <View style={[
               styles.toggleThumb,
@@ -208,6 +242,33 @@ export function SidebarDrawer({
             ]} />
           </View>
         </TouchableOpacity>
+
+        {/* Divider */}
+        <View style={[styles.divider, { backgroundColor: glowColor + '30' }]} />
+
+        {/* Background Video */}
+        <Text style={styles.sectionLabel}>BACKGROUND VIDEO</Text>
+        <TouchableOpacity
+          style={[styles.videoButton, { borderColor: glowColor + '50' }]}
+          activeOpacity={0.7}
+          onPress={handlePickVideo}
+        >
+          <Film color={glowColor} size={18} />
+          <Text style={[styles.videoButtonText, { color: glowColor }]}>
+            {hasVideo ? 'Change Video' : 'Upload Video'}
+          </Text>
+        </TouchableOpacity>
+
+        {hasVideo && (
+          <TouchableOpacity
+            style={[styles.videoButton, { borderColor: '#FF4444' + '50', marginTop: 8 }]}
+            activeOpacity={0.7}
+            onPress={() => onSetBackgroundVideo?.(null)}
+          >
+            <Trash2 color="#FF4444" size={18} />
+            <Text style={[styles.videoButtonText, { color: '#FF4444' }]}>Remove Video</Text>
+          </TouchableOpacity>
+        )}
       </Animated.View>
     </View>
   );
@@ -325,6 +386,24 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     backgroundColor: '#FFFFFF',
+  },
+  toggleRowDisabled: {
+    opacity: 0.5,
+  },
+  videoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  videoButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
 });
 
