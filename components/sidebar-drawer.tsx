@@ -9,6 +9,7 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { X, Home, TrendingUp, Settings, Info, Film, Trash2 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -24,6 +25,19 @@ const GLOW_PRESETS = [
   '#FF6B00', // orange
   '#FFD700', // gold
   '#FF00FF', // magenta
+];
+
+const VIDEO_PRESETS = [
+  { id: 'v0', label: 'Cyber', file: '/videos/video.mp4' },
+  { id: 'v1', label: 'Neon', file: '/videos/video1.mp4' },
+  { id: 'v2', label: 'Matrix', file: '/videos/video2.mp4' },
+  { id: 'v3', label: 'Pulse', file: '/videos/video3.mp4' },
+  { id: 'v4', label: 'Storm', file: '/videos/video4.mp4' },
+  { id: 'v5', label: 'Drift', file: '/videos/video5.mp4' },
+  { id: 'v6', label: 'Grid', file: '/videos/video6.mp4' },
+  { id: 'v7', label: 'Wave', file: '/videos/video7.mp4' },
+  { id: 'v8', label: 'Flux', file: '/videos/video8.mp4' },
+  { id: 'v9', label: 'Void', file: '/videos/video9.mp4' },
 ];
 
 interface SidebarDrawerProps {
@@ -143,6 +157,8 @@ export function SidebarDrawer({
           <X color={glowColor} size={22} />
         </TouchableOpacity>
 
+        <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+
         {/* Nav links */}
         <View style={styles.navSection}>
           {navItems.map((item) => {
@@ -248,14 +264,37 @@ export function SidebarDrawer({
 
         {/* Background Video */}
         <Text style={styles.sectionLabel}>BACKGROUND VIDEO</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetVideoRow}>
+          {VIDEO_PRESETS.map((preset) => {
+            const isActive = backgroundVideo === preset.file;
+            return (
+              <TouchableOpacity
+                key={preset.id}
+                activeOpacity={0.7}
+                onPress={() => onSetBackgroundVideo?.(isActive ? null : preset.file)}
+                style={[
+                  styles.presetVideoTile,
+                  { borderColor: isActive ? glowColor : 'rgba(255,255,255,0.15)' },
+                  isActive && Platform.OS === 'web' ? {
+                    boxShadow: `0 0 6px 1px ${glowColor}60`,
+                  } as any : {},
+                ]}
+              >
+                <Film color={isActive ? glowColor : 'rgba(255,255,255,0.4)'} size={16} />
+                <Text style={[styles.presetVideoLabel, isActive && { color: glowColor }]}>{preset.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
         <TouchableOpacity
-          style={[styles.videoButton, { borderColor: glowColor + '50' }]}
+          style={[styles.videoButton, { borderColor: glowColor + '50', marginTop: 10 }]}
           activeOpacity={0.7}
           onPress={handlePickVideo}
         >
           <Film color={glowColor} size={18} />
           <Text style={[styles.videoButtonText, { color: glowColor }]}>
-            {hasVideo ? 'Change Video' : 'Upload Video'}
+            {hasVideo && !VIDEO_PRESETS.some(p => p.file === backgroundVideo) ? 'Change Custom' : 'Upload Custom'}
           </Text>
         </TouchableOpacity>
 
@@ -402,6 +441,28 @@ const styles = StyleSheet.create({
   },
   videoButtonText: {
     fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  presetVideoRow: {
+    flexDirection: 'row',
+    maxHeight: 58,
+    marginBottom: 4,
+  },
+  presetVideoTile: {
+    width: 56,
+    height: 50,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+    gap: 4,
+  },
+  presetVideoLabel: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 9,
     fontWeight: '600',
     letterSpacing: 0.5,
   },
