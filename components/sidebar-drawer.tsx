@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,9 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { X, Home, TrendingUp, Settings, Info, Film, Trash2 } from 'lucide-react-native';
+import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { VOICE_HELP } from './voice-command';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.75, 280);
@@ -67,6 +68,7 @@ export function SidebarDrawer({
 }: SidebarDrawerProps) {
   const slideAnim = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
+  const [voiceHelpOpen, setVoiceHelpOpen] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -308,6 +310,41 @@ export function SidebarDrawer({
             <Text style={[styles.videoButtonText, { color: '#FF4444' }]}>Remove Video</Text>
           </TouchableOpacity>
         )}
+
+        {/* Divider */}
+        <View style={[styles.divider, { backgroundColor: glowColor + '30' }]} />
+
+        {/* Voice Commands Help */}
+        <TouchableOpacity
+          style={styles.voiceHelpHeader}
+          activeOpacity={0.7}
+          onPress={() => setVoiceHelpOpen(!voiceHelpOpen)}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Mic color={glowColor} size={16} />
+            <Text style={[styles.sectionLabel, { marginBottom: 0 }]}>VOICE COMMANDS</Text>
+          </View>
+          {voiceHelpOpen ? (
+            <ChevronUp color="rgba(255,255,255,0.35)" size={16} />
+          ) : (
+            <ChevronDown color="rgba(255,255,255,0.35)" size={16} />
+          )}
+        </TouchableOpacity>
+
+        {voiceHelpOpen && (
+          <View style={styles.voiceHelpList}>
+            {VOICE_HELP.map((group) => (
+              <View key={group.category} style={styles.voiceHelpGroup}>
+                <Text style={[styles.voiceHelpCategory, { color: glowColor + '80' }]}>{group.category}</Text>
+                {group.commands.map((cmd, i) => (
+                  <Text key={i} style={styles.voiceHelpCmd}>{cmd}</Text>
+                ))}
+              </View>
+            ))}
+          </View>
+        )}
+
+        <View style={{ height: 30 }} />
         </ScrollView>
       </Animated.View>
     </View>
@@ -466,6 +503,34 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '600',
     letterSpacing: 0.5,
+  },
+  voiceHelpHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  voiceHelpList: {
+    paddingHorizontal: 4,
+    paddingTop: 8,
+    gap: 12,
+  },
+  voiceHelpGroup: {
+    gap: 4,
+  },
+  voiceHelpCategory: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    marginBottom: 2,
+  },
+  voiceHelpCmd: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    fontWeight: '500',
+    paddingLeft: 8,
+    lineHeight: 18,
   },
 });
 
