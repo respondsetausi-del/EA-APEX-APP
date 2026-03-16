@@ -6,6 +6,7 @@ import { Plus } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { RobotLogo } from '@/components/robot-logo';
 import { ActionPillBar } from '@/components/action-pill-bar';
+import { VoiceCommandPill } from '@/components/voice-command';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApp } from '@/providers/app-provider';
@@ -13,7 +14,7 @@ import { LOGIN_DISABLED } from '@/constants/features';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, showHeroAvatar, backgroundVideo } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -368,6 +369,20 @@ export default function HomeScreen() {
               <Text style={[styles.addEASubtitle, { color: glowColor + '8C' }]}>HAVE A VALID LICENSE KEY</Text>
             </View>
           </TouchableOpacity>
+
+          {/* Voice Command */}
+          <VoiceCommandPill
+            glowColor={glowColor}
+            isBotActive={isBotActive}
+            onToggleBot={() => setBotActive(!isBotActive)}
+            onRemoveEA={handleRemoveActiveBot}
+            onAddEA={handleAddNewEA}
+            onSetGlowColor={setGlowColor}
+            onToggleAvatar={setShowHeroAvatar}
+            eaName={primaryEA?.name || 'EA'}
+            eaCount={eas.length}
+            activeSymbolCount={activeSymbols?.length || 0}
+          />
         </View>
 
       </ScrollView>
