@@ -308,6 +308,7 @@ export function SidebarDrawer({
             <Text style={[styles.videoButtonText, { color: '#FF4444' }]}>Remove Video</Text>
           </TouchableOpacity>
         )}
+        </ScrollView>
       </Animated.View>
     </View>
   );
