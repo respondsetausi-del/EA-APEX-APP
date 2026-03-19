@@ -13,7 +13,7 @@ interface TradeConfig {
 
 export default function TradeConfigScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
-  const { activeSymbols, activateSymbol, deactivateSymbol, mt4Symbols, mt5Symbols, activateMT4Symbol, activateMT5Symbol, deactivateMT4Symbol, deactivateMT5Symbol } = useApp();
+  const { activeSymbols, activateSymbol, deactivateSymbol, mt4Symbols, mt5Symbols, activateMT4Symbol, activateMT5Symbol, deactivateMT4Symbol, deactivateMT5Symbol, glowColor } = useApp();
   
   const [config, setConfig] = useState<TradeConfig>({
     lotSize: '0.01',
@@ -190,13 +190,13 @@ export default function TradeConfigScreen() {
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: glowColor + '30' }]}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <ArrowLeft color="#FFFFFF" size={24} />
+          <ArrowLeft color={glowColor} size={24} />
         </TouchableOpacity>
         
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>TRADE CONFIG</Text>
+          <Text style={[styles.headerTitle, { color: glowColor }]}>TRADE CONFIG</Text>
           <Text style={styles.symbolText}>{symbol}</Text>
         </View>
       </View>
@@ -213,64 +213,66 @@ export default function TradeConfigScreen() {
         >
         {/* Lot Size */}
         <View style={styles.configSection}>
-          <Text style={styles.sectionTitle}>LOT SIZE</Text>
+          <Text style={[styles.sectionTitle, { color: glowColor + '80' }]}>LOT SIZE</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { borderColor: glowColor + '50' }]}
             value={config.lotSize}
             onChangeText={(value) => updateConfig('lotSize', value)}
             keyboardType="decimal-pad"
             placeholder="0.01"
-            placeholderTextColor="#666666"
+            placeholderTextColor={glowColor + '33'}
           />
         </View>
 
         {/* Direction */}
         <View style={styles.configSection}>
-          <Text style={styles.sectionTitle}>DIRECTION</Text>
+          <Text style={[styles.sectionTitle, { color: glowColor + '80' }]}>DIRECTION</Text>
           <TouchableOpacity 
-            style={styles.picker}
+            style={[styles.picker, { borderColor: glowColor + '50' }]}
             onPress={() => setShowDirectionModal(true)}
           >
             <Text style={styles.pickerText}>{config.direction}</Text>
-            <ChevronDown color="#FFFFFF" size={20} />
+            <ChevronDown color={glowColor} size={20} />
           </TouchableOpacity>
         </View>
 
         {/* Platform */}
         <View style={styles.configSection}>
-          <Text style={styles.sectionTitle}>PLATFORM</Text>
+          <Text style={[styles.sectionTitle, { color: glowColor + '80' }]}>PLATFORM</Text>
           <TouchableOpacity 
-            style={styles.picker}
+            style={[styles.picker, { borderColor: glowColor + '50' }]}
             onPress={() => setShowPlatformModal(true)}
           >
             <Text style={styles.pickerText}>{config.platform}</Text>
-            <ChevronDown color="#FFFFFF" size={20} />
+            <ChevronDown color={glowColor} size={20} />
           </TouchableOpacity>
         </View>
 
         {/* Number of Trades */}
         <View style={styles.configSection}>
-          <Text style={styles.sectionTitle}>NUMBER OF TRADES</Text>
+          <Text style={[styles.sectionTitle, { color: glowColor + '80' }]}>NUMBER OF TRADES</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { borderColor: glowColor + '50' }]}
             value={config.numberOfTrades}
             onChangeText={(value) => updateConfig('numberOfTrades', value)}
             keyboardType="number-pad"
             placeholder="1"
-            placeholderTextColor="#666666"
+            placeholderTextColor={glowColor + '33'}
           />
         </View>
 
         {/* Action Buttons */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.executeButton} onPress={handleSetSymbol}>
-            <Text style={styles.executeButtonText}>
+          <TouchableOpacity style={[styles.executeButton, { borderColor: glowColor + '80' },
+            Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}80, 0 0 18px 4px ${glowColor}33` } as any : {}
+          ]} onPress={handleSetSymbol}>
+            <Text style={[styles.executeButtonText, { color: glowColor }]}>
               {(isSymbolActive || legacySymbolActive) ? 'UPDATE SYMBOL' : 'SET SYMBOL'}
             </Text>
           </TouchableOpacity>
           
           {(isSymbolActive || legacySymbolActive) && (
-            <TouchableOpacity style={styles.removeButton} onPress={handleRemoveSymbol}>
+            <TouchableOpacity style={[styles.removeButton, { borderColor: '#FF444466' }]} onPress={handleRemoveSymbol}>
               <Trash2 color="#FF4444" size={20} />
               <Text style={styles.removeButtonText}>REMOVE</Text>
             </TouchableOpacity>
@@ -290,14 +292,16 @@ export default function TradeConfigScreen() {
           style={styles.modalOverlay}
           onPress={() => setShowDirectionModal(false)}
         >
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Direction</Text>
+          <View style={[styles.modalContent, { borderColor: glowColor + '50', borderWidth: 1 },
+            Platform.OS === 'web' ? { boxShadow: `0 0 10px 2px ${glowColor}60` } as any : {}
+          ]}>
+            <Text style={[styles.modalTitle, { color: glowColor }]}>Select Direction</Text>
             {['BUY', 'SELL', 'BOTH'].map((direction) => (
               <TouchableOpacity
                 key={direction}
                 style={[
                   styles.modalOption,
-                  config.direction === direction && styles.selectedModalOption
+                  config.direction === direction && { backgroundColor: glowColor + '20', borderColor: glowColor + '60' }
                 ]}
                 onPress={() => {
                   updateConfig('direction', direction as 'BUY' | 'SELL' | 'BOTH');
@@ -306,7 +310,7 @@ export default function TradeConfigScreen() {
               >
                 <Text style={[
                   styles.modalOptionText,
-                  config.direction === direction && styles.selectedModalOptionText
+                  config.direction === direction && { color: glowColor }
                 ]}>
                   {direction}
                 </Text>
@@ -327,14 +331,16 @@ export default function TradeConfigScreen() {
           style={styles.modalOverlay}
           onPress={() => setShowPlatformModal(false)}
         >
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Platform</Text>
+          <View style={[styles.modalContent, { borderColor: glowColor + '50', borderWidth: 1 },
+            Platform.OS === 'web' ? { boxShadow: `0 0 10px 2px ${glowColor}60` } as any : {}
+          ]}>
+            <Text style={[styles.modalTitle, { color: glowColor }]}>Select Platform</Text>
             {['MT4', 'MT5'].map((platform) => (
               <TouchableOpacity
                 key={platform}
                 style={[
                   styles.modalOption,
-                  config.platform === platform && styles.selectedModalOption
+                  config.platform === platform && { backgroundColor: glowColor + '20', borderColor: glowColor + '60' }
                 ]}
                 onPress={() => {
                   updateConfig('platform', platform as 'MT4' | 'MT5');
@@ -343,7 +349,7 @@ export default function TradeConfigScreen() {
               >
                 <Text style={[
                   styles.modalOptionText,
-                  config.platform === platform && styles.selectedModalOptionText
+                  config.platform === platform && { color: glowColor }
                 ]}>
                   {platform}
                 </Text>
@@ -370,7 +376,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#333333',
   },
   backButton: {
     marginRight: 16,
@@ -380,7 +385,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerTitle: {
-    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -400,17 +404,15 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
     letterSpacing: 0.5,
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#080D1A',
     borderWidth: 1,
-    borderColor: '#333333',
-    borderRadius: 8,
+    borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 12,
     color: '#FFFFFF',
@@ -418,10 +420,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   picker: {
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#080D1A',
     borderWidth: 1,
-    borderColor: '#333333',
-    borderRadius: 8,
+    borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 12,
     flexDirection: 'row',
@@ -441,24 +442,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   modalContent: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#00FF00',
+    backgroundColor: '#080D1A',
+    borderRadius: 16,
     paddingVertical: 20,
     width: '100%',
     maxWidth: 300,
-    shadowColor: '#00FF00',
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.6,
-    shadowRadius: 16,
-    elevation: 20,
   },
   modalTitle: {
-    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
@@ -469,10 +459,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#333333',
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'transparent',
+    marginHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 4,
   },
   selectedModalOption: {
-    backgroundColor: 'rgba(0, 255, 0, 0.15)',
   },
   modalOptionText: {
     color: '#FFFFFF',
@@ -481,7 +475,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   selectedModalOptionText: {
-    color: '#00FF00',
     fontWeight: 'bold',
   },
   buttonContainer: {
@@ -490,13 +483,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   executeButton: {
-    backgroundColor: '#00FF00',
-    borderRadius: 8,
+    backgroundColor: '#080D1A',
+    borderRadius: 28,
     paddingVertical: 16,
     alignItems: 'center',
+    borderWidth: 1,
   },
   executeButtonText: {
-    color: '#000000',
     fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 0.5,
@@ -504,8 +497,7 @@ const styles = StyleSheet.create({
   removeButton: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#FF4444',
-    borderRadius: 8,
+    borderRadius: 28,
     paddingVertical: 16,
     alignItems: 'center',
     flexDirection: 'row',

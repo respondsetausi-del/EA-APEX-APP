@@ -1,36 +1,34 @@
 import { Tabs, usePathname } from "expo-router";
 import { Menu } from "lucide-react-native";
-import React, { useState, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { View, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { router } from "expo-router";
 import { useApp } from "@/providers/app-provider";
 import { SidebarDrawer } from "@/components/sidebar-drawer";
-import { VoiceCommandPill } from "@/components/voice-command";
+import { NotificationToast } from "@/components/notification-toast";
 
 export default function TabLayout() {
-  const {
-    glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar,
-    backgroundVideo, setBackgroundVideo,
-    eas, isBotActive, setBotActive, removeEA, activeSymbols,
-  } = useApp();
+  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, newSignal, dismissNewSignal } = useApp();
   const [sidebarVisible, setSidebarVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastType, setToastType] = useState<'info' | 'success' | 'warning' | 'error'>('info');
   const pathname = usePathname();
 
-  const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
+  // Show toast when new signal arrives
+  useEffect(() => {
+    if (newSignal) {
+      const dir = newSignal.direction || newSignal.type || '';
+      setToastMessage(`${newSignal.asset} ${dir.toUpperCase()} signal received`);
+      setToastType(dir.toLowerCase().includes('buy') ? 'success' : dir.toLowerCase().includes('sell') ? 'error' : 'info');
+      setToastVisible(true);
+      dismissNewSignal();
+    }
+  }, [newSignal]);
 
   const currentRoute = pathname.includes('metatrader') ? 'metatrader'
     : pathname.includes('quotes') ? 'quotes'
     : 'home';
-
-  const handleVoiceAddEA = useCallback(() => {
-    router.push('/license');
-  }, []);
-
-  const handleVoiceRemoveEA = useCallback(async () => {
-    if (primaryEA) {
-      await removeEA(primaryEA.id);
-    }
-  }, [primaryEA, removeEA]);
 
   return (
     <View style={styles.root}>
@@ -45,21 +43,14 @@ export default function TabLayout() {
         <Tabs.Screen name="metatrader" />
       </Tabs>
 
-      {/* Voice Command — floats at bottom, works on all pages */}
-      <View style={styles.voiceContainer}>
-        <VoiceCommandPill
-          glowColor={glowColor}
-          isBotActive={isBotActive}
-          onToggleBot={() => setBotActive(!isBotActive)}
-          onRemoveEA={handleVoiceRemoveEA}
-          onAddEA={handleVoiceAddEA}
-          onSetGlowColor={setGlowColor}
-          onToggleAvatar={setShowHeroAvatar}
-          eaName={primaryEA?.name || 'EA'}
-          eaCount={eas.length}
-          activeSymbolCount={activeSymbols?.length || 0}
-        />
-      </View>
+      {/* Notification Toast */}
+      <NotificationToast
+        message={toastMessage}
+        type={toastType}
+        visible={toastVisible}
+        onDismiss={() => setToastVisible(false)}
+        glowColor={glowColor}
+      />
 
       {/* Hamburger — floats over every screen */}
       <TouchableOpacity
@@ -85,6 +76,12 @@ export default function TabLayout() {
         onToggleHeroAvatar={setShowHeroAvatar}
         backgroundVideo={backgroundVideo}
         onSetBackgroundVideo={setBackgroundVideo}
+        panelStyle={panelStyle}
+        onPanelStyleChange={setPanelStyle}
+        voiceStyle={voiceStyle}
+        onVoiceStyleChange={setVoiceStyle}
+        layoutStyle={layoutStyle}
+        onLayoutStyleChange={setLayoutStyle}
       />
     </View>
   );
@@ -107,14 +104,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     zIndex: 50,
-  },
-  voiceContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'ios' ? 30 : 16,
-    zIndex: 40,
   },
 });

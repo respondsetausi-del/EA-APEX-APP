@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Animated } from 'react-native';
-import { Mic, MicOff } from 'lucide-react-native';
+import { Mic, MicOff, X } from 'lucide-react-native';
 import { router } from 'expo-router';
 
 interface VoiceCommandPillProps {
+  variant?: string;
   glowColor: string;
   isBotActive: boolean;
   onToggleBot: () => void;
@@ -67,7 +68,7 @@ function speak(text: string): Promise<void> {
 }
 
 export function VoiceCommandPill({
-  glowColor, isBotActive, onToggleBot, onRemoveEA, onAddEA,
+  variant = 'A', glowColor, isBotActive, onToggleBot, onRemoveEA, onAddEA,
   onSetGlowColor, onToggleAvatar,
   eaName = 'EA', eaCount = 0, activeSymbolCount = 0,
 }: VoiceCommandPillProps) {
@@ -256,74 +257,171 @@ export function VoiceCommandPill({
   }, []);
 
   const bars = [bar1, bar2, bar3, bar4, bar5];
+  const glow = (active: boolean) => Platform.OS === 'web' ? {
+    boxShadow: active
+      ? `0 0 10px 2px ${glowColor}A0, 0 0 24px 6px ${glowColor}40`
+      : `0 0 6px 1px ${glowColor}80, 0 0 18px 4px ${glowColor}33`,
+  } as any : {};
 
-  return (
-    <TouchableOpacity
-      activeOpacity={0.7}
-      onPress={toggleListening}
-      style={[
-        styles.pill,
-        { borderColor: isListening ? glowColor : glowColor + '80', shadowColor: glowColor },
-        Platform.OS === 'web' ? {
-          boxShadow: isListening
-            ? `0 0 10px 2px ${glowColor}A0, 0 0 24px 6px ${glowColor}40`
-            : `0 0 6px 1px ${glowColor}80, 0 0 18px 4px ${glowColor}33`,
-        } as any : {},
-      ]}
-    >
-      <View style={[styles.micCircle, { borderColor: glowColor + '50', backgroundColor: isListening ? glowColor + '25' : glowColor + '12' }]}>
-        {isListening ? <MicOff color={glowColor} size={18} /> : <Mic color={glowColor} size={18} />}
-      </View>
+  const renderBars = (compact?: boolean) => (
+    <View style={s.barsRow}>
+      {bars.map((bar, i) => (
+        <Animated.View key={i} style={[s.bar, compact && { width: 1.5 }, { height: isListening ? bar : [8, 14, 20, 14, 8][i], backgroundColor: isListening ? glowColor : glowColor + '66' }]} />
+      ))}
+    </View>
+  );
 
-      <View style={styles.textBlock}>
-        {feedback ? (
-          <Text style={[styles.feedbackText, { color: glowColor }]} numberOfLines={1} ellipsizeMode="tail">{feedback}</Text>
-        ) : isListening && transcript ? (
-          <Text style={[styles.transcriptText, { color: glowColor }]} numberOfLines={1} ellipsizeMode="tail">{transcript}</Text>
+  const renderText = () => (
+    <View style={s.textBlock}>
+      {feedback ? (
+        <Text style={[s.feedbackText, { color: glowColor }]} numberOfLines={1} ellipsizeMode="tail">{feedback}</Text>
+      ) : isListening && transcript ? (
+        <Text style={[s.transcriptText, { color: glowColor }]} numberOfLines={1} ellipsizeMode="tail">{transcript}</Text>
+      ) : (
+        <>
+          <Text style={[s.title, { color: glowColor, textShadowColor: glowColor + '80' }]}>{isListening ? 'LISTENING...' : 'VOICE COMMAND'}</Text>
+          <Text style={[s.subtitle, { color: glowColor + '8C' }]}>{isListening ? 'SPEAK NOW' : 'TAP TO SPEAK'}</Text>
+        </>
+      )}
+    </View>
+  );
+
+  // ── Variant A: Pill (current) ──
+  if (variant === 'A') {
+    return (
+      <TouchableOpacity activeOpacity={0.7} onPress={toggleListening}
+        style={[s.pill, { borderColor: isListening ? glowColor : glowColor + '80', shadowColor: glowColor }, glow(isListening)]}>
+        <View style={[s.micCircle, { borderColor: glowColor + '50', backgroundColor: isListening ? glowColor + '25' : glowColor + '12' }]}>
+          {isListening ? <MicOff color={glowColor} size={18} /> : <Mic color={glowColor} size={18} />}
+        </View>
+        {renderText()}
+        {renderBars()}
+      </TouchableOpacity>
+    );
+  }
+
+  // ── Variant B: Compact circle → expands ──
+  if (variant === 'B') {
+    if (!isListening && !feedback) {
+      return (
+        <View style={s.compactRow}>
+          <TouchableOpacity activeOpacity={0.7} onPress={toggleListening}
+            style={[s.compactCircle, { borderColor: glowColor + '80', shadowColor: glowColor }, glow(false)]}>
+            <Mic color={glowColor} size={22} />
+          </TouchableOpacity>
+          <Text style={[s.compactLabel, { color: glowColor + '80' }]}>VOICE</Text>
+        </View>
+      );
+    }
+    return (
+      <TouchableOpacity activeOpacity={0.7} onPress={toggleListening}
+        style={[s.pill, { borderColor: glowColor, shadowColor: glowColor }, glow(true)]}>
+        <View style={[s.micCircleSmall, { backgroundColor: glowColor + '33' }]}>
+          <X color={glowColor} size={16} />
+        </View>
+        {renderText()}
+        {renderBars()}
+      </TouchableOpacity>
+    );
+  }
+
+  // ── Variant C: Thin bar ──
+  if (variant === 'C') {
+    return (
+      <TouchableOpacity activeOpacity={0.7} onPress={toggleListening}
+        style={[s.thinBar, { borderColor: isListening ? glowColor : glowColor + '4D', shadowColor: glowColor }, isListening ? glow(true) : {}]}>
+        {isListening ? (
+          <X color={glowColor} size={16} />
         ) : (
-          <>
-            <Text style={[styles.title, { color: glowColor, textShadowColor: glowColor + '80' }]}>{isListening ? 'LISTENING...' : 'VOICE COMMAND'}</Text>
-            <Text style={[styles.subtitle, { color: glowColor + '8C' }]}>{isListening ? 'SPEAK NOW' : 'TAP TO SPEAK'}</Text>
-          </>
+          <Mic color={glowColor + '80'} size={16} />
         )}
-      </View>
+        {feedback ? (
+          <Text style={[s.thinText, { color: glowColor }]} numberOfLines={1}>{feedback}</Text>
+        ) : isListening && transcript ? (
+          <Text style={[s.thinText, { color: glowColor, fontStyle: 'italic' }]} numberOfLines={1}>{transcript}</Text>
+        ) : (
+          <Text style={[s.thinText, { color: isListening ? glowColor : glowColor + '80' }]}>{isListening ? 'SPEAK NOW...' : 'TAP FOR VOICE COMMANDS'}</Text>
+        )}
+        {isListening && renderBars(true)}
+      </TouchableOpacity>
+    );
+  }
 
-      <View style={styles.barsContainer}>
-        {bars.map((bar, i) => (
-          <Animated.View key={i} style={[styles.bar, { height: isListening ? bar : [8, 14, 20, 14, 8][i], backgroundColor: isListening ? glowColor : glowColor + '66' }]} />
-        ))}
+  // ── Variant D: Minimal mic icon (integrates near action bar) ──
+  if (variant === 'D') {
+    return (
+      <TouchableOpacity activeOpacity={0.7} onPress={toggleListening}
+        style={[s.minimalPill, { borderColor: isListening ? glowColor : glowColor + '4D' }, isListening ? glow(true) : {}]}>
+        {isListening ? <MicOff color={glowColor} size={16} /> : <Mic color={glowColor + '80'} size={16} />}
+        {feedback ? (
+          <Text style={[s.thinText, { color: glowColor, flex: 1 }]} numberOfLines={1}>{feedback}</Text>
+        ) : isListening ? (
+          <Text style={[s.thinText, { color: glowColor, fontStyle: 'italic', flex: 1 }]} numberOfLines={1}>{transcript || 'Listening...'}</Text>
+        ) : (
+          <Text style={[s.thinText, { color: glowColor + '80', flex: 1 }]}>VOICE</Text>
+        )}
+        {isListening && renderBars(true)}
+      </TouchableOpacity>
+    );
+  }
+
+  // ── Variant E: Waveform strip ──
+  return (
+    <TouchableOpacity activeOpacity={0.7} onPress={toggleListening}
+      style={[s.waveStrip, { borderColor: isListening ? glowColor : glowColor + '4D', shadowColor: glowColor }, isListening ? glow(true) : {}]}>
+      {feedback ? (
+        <Text style={[s.waveText, { color: glowColor }]} numberOfLines={1}>{feedback}</Text>
+      ) : isListening && transcript ? (
+        <Text style={[s.waveText, { color: glowColor, fontStyle: 'italic' }]} numberOfLines={1}>{transcript}</Text>
+      ) : (
+        <Text style={[s.waveText, { color: isListening ? glowColor : glowColor + '8C' }]}>{isListening ? 'SPEAK NOW...' : 'VOICE COMMAND'}</Text>
+      )}
+      {isListening && (
+        <View style={s.waveBars}>
+          {[4, 10, 18, 24, 16, 22, 12, 20, 8, 14].map((h, i) => (
+            <Animated.View key={i} style={{ width: 2, height: isListening ? bars[i % 5] : h, borderRadius: 1, backgroundColor: glowColor, opacity: 0.5 + (i % 3) * 0.2 }} />
+          ))}
+        </View>
+      )}
+      <View style={[s.waveMicBtn, { borderColor: isListening ? glowColor + '80' : glowColor + '4D', backgroundColor: isListening ? glowColor + '33' : glowColor + '15' }]}>
+        {isListening ? <X color={glowColor} size={16} /> : <Mic color={glowColor} size={18} />}
       </View>
     </TouchableOpacity>
   );
 }
 
-const styles = StyleSheet.create({
-  pill: {
-    backgroundColor: '#080D1A',
-    borderRadius: 28,
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 56,
-    paddingHorizontal: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    gap: 14,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  micCircle: {
-    width: 36, height: 36, borderRadius: 18, borderWidth: 1,
-    alignItems: 'center', justifyContent: 'center',
-  },
+const s = StyleSheet.create({
+  // Shared
   textBlock: { flex: 1, flexDirection: 'column', gap: 2, minWidth: 0 },
   title: { fontSize: 13, fontWeight: '700', letterSpacing: 1.2, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 },
   subtitle: { fontSize: 10, fontWeight: '500', letterSpacing: 0.8 },
   transcriptText: { fontSize: 13, fontWeight: '600', fontStyle: 'italic' },
   feedbackText: { fontSize: 13, fontWeight: '700', letterSpacing: 0.5 },
-  barsContainer: { flexDirection: 'row', alignItems: 'center', gap: 2, height: 24 },
+  barsRow: { flexDirection: 'row', alignItems: 'center', gap: 2, height: 24 },
   bar: { width: 2, borderRadius: 1 },
+
+  // A: Pill
+  pill: { backgroundColor: '#080D1A', borderRadius: 28, flexDirection: 'row', alignItems: 'center', height: 56, paddingHorizontal: 20, marginBottom: 20, borderWidth: 1, gap: 14, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 8 },
+  micCircle: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+
+  // B: Compact
+  compactRow: { alignItems: 'center', gap: 6, marginBottom: 20 },
+  compactCircle: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#080D1A', borderWidth: 1, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 6 },
+  compactLabel: { fontSize: 9, fontWeight: '600', letterSpacing: 1 },
+  micCircleSmall: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+
+  // C: Thin bar
+  thinBar: { backgroundColor: '#080D1A', borderRadius: 20, flexDirection: 'row', alignItems: 'center', height: 40, paddingHorizontal: 16, marginBottom: 20, borderWidth: 1, gap: 10 },
+  thinText: { fontSize: 11, fontWeight: '600', letterSpacing: 1, flex: 1 },
+
+  // D: Minimal
+  minimalPill: { backgroundColor: '#080D1A', borderRadius: 20, flexDirection: 'row', alignItems: 'center', height: 36, paddingHorizontal: 14, marginBottom: 20, borderWidth: 1, gap: 8 },
+
+  // E: Waveform
+  waveStrip: { backgroundColor: '#080D1A', borderRadius: 24, flexDirection: 'row', alignItems: 'center', height: 48, paddingLeft: 18, paddingRight: 6, marginBottom: 20, borderWidth: 1, gap: 10 },
+  waveText: { fontSize: 11, fontWeight: '600', letterSpacing: 1, flex: 1 },
+  waveBars: { flexDirection: 'row', alignItems: 'center', gap: 1.5, height: 28, paddingRight: 4 },
+  waveMicBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
 });
 
 export default VoiceCommandPill;

@@ -91,6 +91,12 @@ interface AppState {
   setShowHeroAvatar: (show: boolean) => void;
   backgroundVideo: string | null;
   setBackgroundVideo: (uri: string | null) => void;
+  panelStyle: string;
+  setPanelStyle: (style: string) => void;
+  voiceStyle: string;
+  setVoiceStyle: (style: string) => void;
+  layoutStyle: string;
+  setLayoutStyle: (style: string) => void;
   setUser: (user: User) => void;
   addEA: (ea: EA) => Promise<boolean>;
   removeEA: (id: string) => Promise<boolean>;
@@ -136,6 +142,9 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [glowColor, setGlowColorState] = useState<string>('#00BFFF');
   const [showHeroAvatar, setShowHeroAvatarState] = useState<boolean>(true);
   const [backgroundVideo, setBackgroundVideoState] = useState<string | null>(null);
+  const [panelStyle, setPanelStyleState] = useState<string>('A');
+  const [voiceStyle, setVoiceStyleState] = useState<string>('A');
+  const [layoutStyle, setLayoutStyleState] = useState<string>('1');
 
   // Load persisted data on mount
   useEffect(() => {
@@ -147,7 +156,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       console.log('Loading persisted data...');
 
       // Load all data in parallel but handle each independently
-      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData] = await Promise.allSettled([
+      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData] = await Promise.allSettled([
         AsyncStorage.getItem('user'),
         AsyncStorage.getItem('eas'),
         AsyncStorage.getItem('mtAccount'),
@@ -160,7 +169,10 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         AsyncStorage.getItem('isBotActive'),
         AsyncStorage.getItem('glowColor'),
         AsyncStorage.getItem('showHeroAvatar'),
-        AsyncStorage.getItem('backgroundVideo')
+        AsyncStorage.getItem('backgroundVideo'),
+        AsyncStorage.getItem('panelStyle'),
+        AsyncStorage.getItem('voiceStyle'),
+        AsyncStorage.getItem('layoutStyle')
       ]);
 
       // Handle user data
@@ -377,6 +389,17 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       if (bgVideoData.status === 'fulfilled' && bgVideoData.value) {
         setBackgroundVideoState(bgVideoData.value);
         console.log('Background video loaded:', bgVideoData.value);
+      }
+
+      // Handle style selectors
+      if (panelData.status === 'fulfilled' && panelData.value) {
+        setPanelStyleState(panelData.value);
+      }
+      if (voiceData.status === 'fulfilled' && voiceData.value) {
+        setVoiceStyleState(voiceData.value);
+      }
+      if (layoutData.status === 'fulfilled' && layoutData.value) {
+        setLayoutStyleState(layoutData.value);
       }
 
       console.log('Persisted data loading completed');
@@ -818,6 +841,21 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     }
   }, []);
 
+  const setPanelStyle = useCallback(async (style: string) => {
+    setPanelStyleState(style);
+    try { await AsyncStorage.setItem('panelStyle', style); } catch (e) { console.error('Error saving panelStyle:', e); }
+  }, []);
+
+  const setVoiceStyle = useCallback(async (style: string) => {
+    setVoiceStyleState(style);
+    try { await AsyncStorage.setItem('voiceStyle', style); } catch (e) { console.error('Error saving voiceStyle:', e); }
+  }, []);
+
+  const setLayoutStyle = useCallback(async (style: string) => {
+    setLayoutStyleState(style);
+    try { await AsyncStorage.setItem('layoutStyle', style); } catch (e) { console.error('Error saving layoutStyle:', e); }
+  }, []);
+
   const startSignalsMonitoring = useCallback((phoneSecret: string) => {
     console.log('Starting signals monitoring with phone secret:', phoneSecret);
 
@@ -958,6 +996,12 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setShowHeroAvatar,
     backgroundVideo,
     setBackgroundVideo,
+    panelStyle,
+    setPanelStyle,
+    voiceStyle,
+    setVoiceStyle,
+    layoutStyle,
+    setLayoutStyle,
     setUser,
     addEA,
     removeEA,
@@ -980,5 +1024,5 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     dismissNewSignal,
     setTradingSignal: setTradingSignalCallback,
     setShowTradingWebView: setShowTradingWebViewCallback,
-  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback]);
+  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback]);
 });

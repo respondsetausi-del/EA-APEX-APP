@@ -306,7 +306,7 @@ export default function QuotesScreen() {
             )}
           </View>
         ) : (
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
+          <ScrollView showsVerticalScrollIndicator={false}>
             {quotesWithActiveStatus.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyText}>No symbols available</Text>

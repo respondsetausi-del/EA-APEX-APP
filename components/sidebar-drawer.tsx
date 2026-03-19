@@ -11,9 +11,10 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp, Palette, Sliders, Video as VideoIcon } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { VOICE_HELP } from './voice-command';
+import { THEME_PRESETS } from '@/constants/themes';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.75, 280);
@@ -52,7 +53,29 @@ interface SidebarDrawerProps {
   onToggleHeroAvatar?: (show: boolean) => void;
   backgroundVideo?: string | null;
   onSetBackgroundVideo?: (uri: string | null) => void;
+  panelStyle?: string;
+  onPanelStyleChange?: (style: string) => void;
+  voiceStyle?: string;
+  onVoiceStyleChange?: (style: string) => void;
+  layoutStyle?: string;
+  onLayoutStyleChange?: (style: string) => void;
 }
+
+const STYLE_OPTIONS = [
+  { key: 'A', label: 'Pill' },
+  { key: 'B', label: 'Stack' },
+  { key: 'C', label: 'Circle' },
+  { key: 'D', label: 'Grid' },
+  { key: 'E', label: 'Float' },
+];
+
+const LAYOUT_OPTIONS = [
+  { key: '1', label: 'Hero' },
+  { key: '2', label: 'Center' },
+  { key: '3', label: 'Dash' },
+  { key: '4', label: 'Cine' },
+  { key: '5', label: 'Card' },
+];
 
 export function SidebarDrawer({
   visible,
@@ -65,10 +88,19 @@ export function SidebarDrawer({
   onToggleHeroAvatar,
   backgroundVideo = null,
   onSetBackgroundVideo,
+  panelStyle = 'A',
+  onPanelStyleChange,
+  voiceStyle = 'A',
+  onVoiceStyleChange,
+  layoutStyle = '1',
+  onLayoutStyleChange,
 }: SidebarDrawerProps) {
   const slideAnim = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const [voiceHelpOpen, setVoiceHelpOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(true);
+  const [mediaOpen, setMediaOpen] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -101,6 +133,13 @@ export function SidebarDrawer({
   }, [visible]);
 
   const hasVideo = !!backgroundVideo;
+
+  const handleApplyTheme = (themeId: string) => {
+    const theme = THEME_PRESETS.find(t => t.id === themeId);
+    if (!theme) return;
+    onColorChange(theme.glowColor);
+    onSetBackgroundVideo?.(theme.videoFile);
+  };
 
   const handlePickVideo = async () => {
     try {
@@ -204,131 +243,171 @@ export function SidebarDrawer({
           <Text style={styles.navLabel}>About</Text>
         </TouchableOpacity>
 
-        {/* Divider */}
-        <View style={[styles.divider, { backgroundColor: glowColor + '30' }]} />
-
-        {/* Color Picker */}
-        <Text style={styles.sectionLabel}>GLOW COLOR</Text>
-        <View style={styles.colorRow}>
-          {GLOW_PRESETS.map((color) => {
-            const isSelected = glowColor === color;
-            return (
-              <TouchableOpacity
-                key={color}
-                activeOpacity={0.7}
-                onPress={() => onColorChange(color)}
-                style={[
-                  styles.colorCircleOuter,
-                  isSelected && {
-                    borderColor: color,
-                    ...Platform.select({
-                      web: {
-                        boxShadow: `0 0 8px 2px ${color}60`,
-                      } as any,
-                    }),
-                  },
-                ]}
-              >
-                <View style={[styles.colorCircle, { backgroundColor: color }]} />
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* Divider */}
-        <View style={[styles.divider, { backgroundColor: glowColor + '30' }]} />
-
-        {/* Avatar Toggle */}
-        <TouchableOpacity
-          style={[styles.toggleRow, hasVideo && styles.toggleRowDisabled]}
-          activeOpacity={hasVideo ? 1 : 0.7}
-          onPress={() => {
-            if (!hasVideo) onToggleHeroAvatar?.(!showHeroAvatar);
-          }}
-        >
-          <View style={{ flexDirection: 'column' }}>
-            <Text style={[styles.toggleLabel, hasVideo && { color: 'rgba(255,255,255,0.25)' }]}>Avatar Circle</Text>
-            {hasVideo && <Text style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10, marginTop: 2 }}>Required with video</Text>}
+        {/* ═══ THEMES SECTION ═══ */}
+        <TouchableOpacity style={[styles.sectionHeader2, { borderTopColor: glowColor + '30' }]} activeOpacity={0.7} onPress={() => setThemeOpen(!themeOpen)}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Palette color={glowColor} size={16} />
+            <Text style={[styles.sectionHeaderText, { color: glowColor }]}>THEMES</Text>
           </View>
-          <View style={[
-            styles.toggleTrack,
-            { backgroundColor: showHeroAvatar ? (hasVideo ? glowColor + '60' : glowColor) : 'rgba(255,255,255,0.15)' },
-          ]}>
-            <View style={[
-              styles.toggleThumb,
-              { transform: [{ translateX: showHeroAvatar ? 14 : 0 }] },
-            ]} />
+          {themeOpen ? <ChevronUp color={glowColor + '60'} size={16} /> : <ChevronDown color={glowColor + '60'} size={16} />}
+        </TouchableOpacity>
+        {themeOpen && (
+          <View style={styles.sectionBody}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetVideoRow}>
+              {THEME_PRESETS.map((theme) => {
+                const isActive = glowColor === theme.glowColor && backgroundVideo === theme.videoFile;
+                return (
+                  <TouchableOpacity
+                    key={theme.id}
+                    activeOpacity={0.7}
+                    onPress={() => handleApplyTheme(theme.id)}
+                    style={[styles.themeTile, { borderColor: isActive ? theme.glowColor : 'rgba(255,255,255,0.15)' }, isActive && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${theme.glowColor}60` } as any : {}]}
+                  >
+                    <View style={[styles.themeDot, { backgroundColor: theme.glowColor }]} />
+                    <Text style={[styles.themeTileLabel, isActive && { color: theme.glowColor }]}>{theme.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
-        </TouchableOpacity>
-
-        {/* Divider */}
-        <View style={[styles.divider, { backgroundColor: glowColor + '30' }]} />
-
-        {/* Background Video */}
-        <Text style={styles.sectionLabel}>BACKGROUND VIDEO</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetVideoRow}>
-          {VIDEO_PRESETS.map((preset) => {
-            const isActive = backgroundVideo === preset.file;
-            return (
-              <TouchableOpacity
-                key={preset.id}
-                activeOpacity={0.7}
-                onPress={() => onSetBackgroundVideo?.(isActive ? null : preset.file)}
-                style={[
-                  styles.presetVideoTile,
-                  { borderColor: isActive ? glowColor : 'rgba(255,255,255,0.15)' },
-                  isActive && Platform.OS === 'web' ? {
-                    boxShadow: `0 0 6px 1px ${glowColor}60`,
-                  } as any : {},
-                ]}
-              >
-                <Film color={isActive ? glowColor : 'rgba(255,255,255,0.4)'} size={16} />
-                <Text style={[styles.presetVideoLabel, isActive && { color: glowColor }]}>{preset.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        <TouchableOpacity
-          style={[styles.videoButton, { borderColor: glowColor + '50', marginTop: 10 }]}
-          activeOpacity={0.7}
-          onPress={handlePickVideo}
-        >
-          <Film color={glowColor} size={18} />
-          <Text style={[styles.videoButtonText, { color: glowColor }]}>
-            {hasVideo && !VIDEO_PRESETS.some(p => p.file === backgroundVideo) ? 'Change Custom' : 'Upload Custom'}
-          </Text>
-        </TouchableOpacity>
-
-        {hasVideo && (
-          <TouchableOpacity
-            style={[styles.videoButton, { borderColor: '#FF4444' + '50', marginTop: 8 }]}
-            activeOpacity={0.7}
-            onPress={() => onSetBackgroundVideo?.(null)}
-          >
-            <Trash2 color="#FF4444" size={18} />
-            <Text style={[styles.videoButtonText, { color: '#FF4444' }]}>Remove Video</Text>
-          </TouchableOpacity>
         )}
 
-        {/* Divider */}
-        <View style={[styles.divider, { backgroundColor: glowColor + '30' }]} />
+        {/* ═══ APPEARANCE SECTION ═══ */}
+        <TouchableOpacity style={[styles.sectionHeader2, { borderTopColor: glowColor + '30' }]} activeOpacity={0.7} onPress={() => setAppearanceOpen(!appearanceOpen)}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Sliders color={glowColor} size={16} />
+            <Text style={[styles.sectionHeaderText, { color: glowColor }]}>APPEARANCE</Text>
+          </View>
+          {appearanceOpen ? <ChevronUp color={glowColor + '60'} size={16} /> : <ChevronDown color={glowColor + '60'} size={16} />}
+        </TouchableOpacity>
+        {appearanceOpen && (
+          <View style={styles.sectionBody}>
+            <Text style={styles.sectionLabel}>GLOW COLOR</Text>
+            <View style={styles.colorRow}>
+              {GLOW_PRESETS.map((color) => {
+                const isSelected = glowColor === color;
+                return (
+                  <TouchableOpacity
+                    key={color}
+                    activeOpacity={0.7}
+                    onPress={() => onColorChange(color)}
+                    style={[styles.colorCircleOuter, isSelected && { borderColor: color, ...Platform.select({ web: { boxShadow: `0 0 8px 2px ${color}60` } as any }) }]}
+                  >
+                    <View style={[styles.colorCircle, { backgroundColor: color }]} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-        {/* Voice Commands Help */}
+            {/* Avatar Toggle */}
+            <TouchableOpacity
+              style={[styles.toggleRow, hasVideo && styles.toggleRowDisabled]}
+              activeOpacity={hasVideo ? 1 : 0.7}
+              onPress={() => { if (!hasVideo) onToggleHeroAvatar?.(!showHeroAvatar); }}
+            >
+              <View style={{ flexDirection: 'column' }}>
+                <Text style={[styles.toggleLabel, hasVideo && { color: 'rgba(255,255,255,0.25)' }]}>Avatar Circle</Text>
+                {hasVideo && <Text style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10, marginTop: 2 }}>Required with video</Text>}
+              </View>
+              <View style={[styles.toggleTrack, { backgroundColor: showHeroAvatar ? (hasVideo ? glowColor + '60' : glowColor) : 'rgba(255,255,255,0.15)' }]}>
+                <View style={[styles.toggleThumb, { transform: [{ translateX: showHeroAvatar ? 14 : 0 }] }]} />
+              </View>
+            </TouchableOpacity>
+
+            {/* Panel Style */}
+            <Text style={[styles.sectionLabel, { marginTop: 10 }]}>PANEL STYLE</Text>
+            <View style={styles.styleTileRow}>
+              {STYLE_OPTIONS.map((opt) => {
+                const active = panelStyle === opt.key;
+                return (
+                  <TouchableOpacity key={opt.key} activeOpacity={0.7} onPress={() => onPanelStyleChange?.(opt.key)}
+                    style={[styles.styleTile, { borderColor: active ? glowColor : 'rgba(255,255,255,0.15)' }, active && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
+                    <Text style={[styles.styleTileLabel, active && { color: glowColor }]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Voice Style */}
+            <Text style={[styles.sectionLabel, { marginTop: 10 }]}>VOICE STYLE</Text>
+            <View style={styles.styleTileRow}>
+              {STYLE_OPTIONS.map((opt) => {
+                const active = voiceStyle === opt.key;
+                return (
+                  <TouchableOpacity key={opt.key} activeOpacity={0.7} onPress={() => onVoiceStyleChange?.(opt.key)}
+                    style={[styles.styleTile, { borderColor: active ? glowColor : 'rgba(255,255,255,0.15)' }, active && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
+                    <Text style={[styles.styleTileLabel, active && { color: glowColor }]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Layout Style */}
+            <Text style={[styles.sectionLabel, { marginTop: 10 }]}>LAYOUT STYLE</Text>
+            <View style={styles.styleTileRow}>
+              {LAYOUT_OPTIONS.map((opt) => {
+                const active = layoutStyle === opt.key;
+                return (
+                  <TouchableOpacity key={opt.key} activeOpacity={0.7} onPress={() => onLayoutStyleChange?.(opt.key)}
+                    style={[styles.styleTile, { borderColor: active ? glowColor : 'rgba(255,255,255,0.15)' }, active && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
+                    <Text style={[styles.styleTileLabel, active && { color: glowColor }]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* ═══ MEDIA SECTION ═══ */}
+        <TouchableOpacity style={[styles.sectionHeader2, { borderTopColor: glowColor + '30' }]} activeOpacity={0.7} onPress={() => setMediaOpen(!mediaOpen)}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <VideoIcon color={glowColor} size={16} />
+            <Text style={[styles.sectionHeaderText, { color: glowColor }]}>BACKGROUND VIDEO</Text>
+          </View>
+          {mediaOpen ? <ChevronUp color={glowColor + '60'} size={16} /> : <ChevronDown color={glowColor + '60'} size={16} />}
+        </TouchableOpacity>
+        {mediaOpen && (
+          <View style={styles.sectionBody}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetVideoRow}>
+              {VIDEO_PRESETS.map((preset) => {
+                const isActive = backgroundVideo === preset.file;
+                return (
+                  <TouchableOpacity key={preset.id} activeOpacity={0.7} onPress={() => onSetBackgroundVideo?.(isActive ? null : preset.file)}
+                    style={[styles.presetVideoTile, { borderColor: isActive ? glowColor : 'rgba(255,255,255,0.15)' }, isActive && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
+                    <Film color={isActive ? glowColor : 'rgba(255,255,255,0.4)'} size={16} />
+                    <Text style={[styles.presetVideoLabel, isActive && { color: glowColor }]}>{preset.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity style={[styles.videoButton, { borderColor: glowColor + '50', marginTop: 10 }]} activeOpacity={0.7} onPress={handlePickVideo}>
+              <Film color={glowColor} size={18} />
+              <Text style={[styles.videoButtonText, { color: glowColor }]}>
+                {hasVideo && !VIDEO_PRESETS.some(p => p.file === backgroundVideo) ? 'Change Custom' : 'Upload Custom'}
+              </Text>
+            </TouchableOpacity>
+
+            {hasVideo && (
+              <TouchableOpacity style={[styles.videoButton, { borderColor: '#FF444450', marginTop: 8 }]} activeOpacity={0.7} onPress={() => onSetBackgroundVideo?.(null)}>
+                <Trash2 color="#FF4444" size={18} />
+                <Text style={[styles.videoButtonText, { color: '#FF4444' }]}>Remove Video</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* ═══ VOICE SECTION ═══ */}
         <TouchableOpacity
-          style={styles.voiceHelpHeader}
+          style={[styles.sectionHeader2, { borderTopColor: glowColor + '30' }]}
           activeOpacity={0.7}
           onPress={() => setVoiceHelpOpen(!voiceHelpOpen)}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Mic color={glowColor} size={16} />
-            <Text style={[styles.sectionLabel, { marginBottom: 0 }]}>VOICE COMMANDS</Text>
+            <Text style={[styles.sectionHeaderText, { color: glowColor }]}>VOICE COMMANDS</Text>
           </View>
-          {voiceHelpOpen ? (
-            <ChevronUp color="rgba(255,255,255,0.35)" size={16} />
-          ) : (
-            <ChevronDown color="rgba(255,255,255,0.35)" size={16} />
-          )}
+          {voiceHelpOpen ? <ChevronUp color={glowColor + '60'} size={16} /> : <ChevronDown color={glowColor + '60'} size={16} />}
         </TouchableOpacity>
 
         {voiceHelpOpen && (
@@ -501,6 +580,65 @@ const styles = StyleSheet.create({
   presetVideoLabel: {
     color: 'rgba(255,255,255,0.4)',
     fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  styleTileRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 4,
+  },
+  styleTile: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  styleTileLabel: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  sectionHeader2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    marginTop: 4,
+  },
+  sectionHeaderText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+  },
+  sectionBody: {
+    paddingBottom: 8,
+  },
+  themeTile: {
+    width: 70,
+    height: 50,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+    gap: 4,
+  },
+  themeDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  themeTileLabel: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 8,
     fontWeight: '600',
     letterSpacing: 0.5,
   },

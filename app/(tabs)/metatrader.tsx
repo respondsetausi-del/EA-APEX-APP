@@ -1821,7 +1821,6 @@ export default function MetaTraderScreen() {
           style={styles.content} 
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingBottom: 80 }}
         >
         {/* Account Type Tabs */}
         <View style={styles.tabContainer}>

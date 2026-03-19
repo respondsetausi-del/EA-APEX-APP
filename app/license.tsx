@@ -8,7 +8,7 @@ import { apiService } from '@/services/api';
 export default function LicenseScreen() {
   const [licenseKey, setLicenseKey] = useState<string>('');
   const [isActivating, setIsActivating] = useState<boolean>(false);
-  const { addEA, eas } = useApp();
+  const { addEA, eas, glowColor } = useApp();
   const hasActiveBots = eas.length > 0;
   const [modalVisible, setModalVisible] = useState<boolean>(false);
   const [modalTitle, setModalTitle] = useState<string>('');
@@ -98,7 +98,7 @@ export default function LicenseScreen() {
       {hasActiveBots && (
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <ArrowLeft size={24} color="#FFFFFF" />
+            <ArrowLeft size={24} color={glowColor} />
           </TouchableOpacity>
         </View>
       )}
@@ -119,31 +119,38 @@ export default function LicenseScreen() {
                 style={styles.appIcon}
                 resizeMode="contain"
               />
-              <Text style={styles.title}>Enter License Key</Text>
+              <Text style={[styles.title, { color: glowColor }]}>Enter License Key</Text>
             </View>
 
             <View style={styles.form}>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: glowColor + '50' }]}
                 placeholder="License Key"
-                placeholderTextColor="#999999"
+                placeholderTextColor={glowColor + '4D'}
                 value={licenseKey}
                 onChangeText={setLicenseKey}
                 autoCapitalize="characters"
               />
 
               <TouchableOpacity
-                style={[styles.activateButton, isActivating && styles.activateButtonDisabled]}
+                style={[
+                  styles.activateButton,
+                  { borderColor: glowColor + '80' },
+                  isActivating && styles.activateButtonDisabled,
+                  Platform.OS === 'web' ? {
+                    boxShadow: `0 0 6px 1px ${glowColor}80, 0 0 18px 4px ${glowColor}33`,
+                  } as any : {},
+                ]}
                 onPress={handleActivate}
                 disabled={isActivating}
               >
                 {isActivating ? (
                   <View style={styles.activatingContainer}>
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                    <Text style={styles.activatingText}>Activating...</Text>
+                    <ActivityIndicator size="small" color={glowColor} />
+                    <Text style={[styles.activatingText, { color: glowColor }]}>Activating...</Text>
                   </View>
                 ) : (
-                  <Text style={styles.activateButtonText}>Activate EA</Text>
+                  <Text style={[styles.activateButtonText, { color: glowColor }]}>Activate EA</Text>
                 )}
               </TouchableOpacity>
 
@@ -156,14 +163,16 @@ export default function LicenseScreen() {
       </KeyboardAvoidingView>
       {modalVisible && (
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{modalTitle}</Text>
+          <View style={[styles.modalCard, { borderColor: glowColor + '50', borderWidth: 1 },
+            Platform.OS === 'web' ? { boxShadow: `0 0 10px 2px ${glowColor}60` } as any : {}
+          ]}>
+            <Text style={[styles.modalTitle, { color: glowColor }]}>{modalTitle}</Text>
             <Text style={styles.modalMessage}>{modalMessage}</Text>
             <TouchableOpacity
-              style={styles.modalButton}
+              style={[styles.modalButton, { borderWidth: 1, borderColor: glowColor + '80' }]}
               onPress={() => setModalVisible(false)}
             >
-              <Text style={styles.modalButtonText}>OK</Text>
+              <Text style={[styles.modalButtonText, { color: glowColor }]}>OK</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -194,7 +203,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   content: {
     flex: 1,
@@ -209,29 +220,30 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#FFFFFF',
     marginTop: 16,
+    letterSpacing: 1,
   },
   form: {
     width: '100%',
     maxWidth: 300,
   },
   input: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#080D1A',
     borderWidth: 1,
-    borderColor: '#333333',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     fontSize: 16,
     marginBottom: 16,
     color: '#FFFFFF',
+    letterSpacing: 1,
   },
   activateButton: {
-    backgroundColor: '#000000',
+    backgroundColor: '#080D1A',
     paddingVertical: 16,
-    borderRadius: 8,
+    borderRadius: 28,
     marginTop: 8,
+    borderWidth: 1,
   },
   activateButtonDisabled: {
     backgroundColor: '#999999',
@@ -263,7 +275,7 @@ const styles = StyleSheet.create({
   appIcon: {
     width: 80,
     height: 80,
-    borderRadius: 16,
+    borderRadius: 20,
   },
   modalOverlay: {
     position: 'absolute',
@@ -279,33 +291,27 @@ const styles = StyleSheet.create({
   modalCard: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
+    backgroundColor: '#080D1A',
+    borderRadius: 16,
     padding: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#FFFFFF',
     marginBottom: 8,
   },
   modalMessage: {
     fontSize: 14,
     color: '#CCCCCC',
     marginBottom: 16,
+    lineHeight: 20,
   },
   modalButton: {
-    backgroundColor: '#000000',
+    backgroundColor: '#080D1A',
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 28,
   },
   modalButtonText: {
-    color: '#FFFFFF',
     textAlign: 'center',
     fontSize: 16,
     fontWeight: '600',
