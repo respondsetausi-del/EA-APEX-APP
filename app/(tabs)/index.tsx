@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode } from 'expo-av';
-import { Plus } from 'lucide-react-native';
+import { Plus, TrendingUp, X } from 'lucide-react-native';
 import { router } from 'expo-router';
+import { WebView } from 'react-native-webview';
 import { RobotLogo } from '@/components/robot-logo';
 import { TradingPanel } from '@/components/trading-panel';
 import { VoiceCommandPill } from '@/components/voice-command';
@@ -24,6 +25,7 @@ export default function HomeScreen() {
 
   const [logoError, setLogoError] = useState<boolean>(false);
   const [avatarError, setAvatarError] = useState<boolean>(false);
+  const [synapseOpen, setSynapseOpen] = useState<boolean>(false);
   const [hasCheckedAuth, setHasCheckedAuth] = useState<boolean>(false);
 
   // Check if user has completed email authentication
@@ -304,6 +306,21 @@ export default function HomeScreen() {
         </View>
       </TouchableOpacity>
 
+      {/* FXSynapse AI Card */}
+      <TouchableOpacity
+        style={[styles.synapseCard, { borderColor: glowColor + '50' }, webGlow(glowColor)]}
+        activeOpacity={0.7}
+        onPress={() => setSynapseOpen(true)}
+      >
+        <View style={[styles.synapseIconBox, { backgroundColor: glowColor + '15', borderColor: glowColor + '40' }]}>
+          <TrendingUp color={glowColor} size={20} />
+        </View>
+        <View style={styles.synapseTextBlock}>
+          <Text style={[styles.synapseTitle, { color: glowColor, textShadowColor: glowColor + '80' }]}>FXSYNAPSE AI</Text>
+          <Text style={[styles.synapseSubtitle, { color: glowColor + '8C' }]}>AI-POWERED CHART ANALYSIS</Text>
+        </View>
+      </TouchableOpacity>
+
       <VoiceCommandPill
         variant={voiceStyle} glowColor={glowColor} isBotActive={isBotActive}
         onToggleBot={() => setBotActive(!isBotActive)} onRemoveEA={handleRemoveActiveBot} onAddEA={handleAddNewEA}
@@ -483,6 +500,32 @@ export default function HomeScreen() {
          : layoutStyle === '5' ? renderLayout5()
          : renderLayout1()}
       </ScrollView>
+
+      {/* FXSynapse AI WebView Modal */}
+      <Modal visible={synapseOpen} animationType="slide" onRequestClose={() => setSynapseOpen(false)}>
+        <SafeAreaView style={styles.synapseModal}>
+          <View style={styles.synapseModalHeader}>
+            <Text style={[styles.synapseModalTitle, { color: glowColor }]}>FXSYNAPSE AI</Text>
+            <TouchableOpacity onPress={() => setSynapseOpen(false)} activeOpacity={0.7} style={styles.synapseCloseBtn}>
+              <X color={glowColor} size={22} />
+            </TouchableOpacity>
+          </View>
+          {Platform.OS === 'web' ? (
+            <View style={{ flex: 1 }}>
+              {React.createElement('iframe', {
+                src: 'https://fxsynapse-ai.vercel.app/partner/converter',
+                style: { width: '100%', height: '100%', border: 'none', backgroundColor: '#000' },
+              })}
+            </View>
+          ) : (
+            <WebView
+              source={{ uri: 'https://fxsynapse-ai.vercel.app/partner/converter' }}
+              style={{ flex: 1, backgroundColor: '#000' }}
+              startInLoadingState={true}
+            />
+          )}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -925,6 +968,76 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '500',
     letterSpacing: 0.8,
+  },
+
+  // FXSynapse card
+  synapseCard: {
+    backgroundColor: '#080D1A',
+    borderRadius: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 56,
+    paddingHorizontal: 20,
+    marginBottom: 12,
+    borderWidth: 1,
+    gap: 14,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  synapseIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  synapseTextBlock: {
+    flex: 1,
+    flexDirection: 'column',
+    gap: 2,
+  },
+  synapseTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
+  },
+  synapseSubtitle: {
+    fontSize: 10,
+    fontWeight: '500',
+    letterSpacing: 0.8,
+  },
+
+  // FXSynapse modal
+  synapseModal: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  synapseModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  synapseModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+  },
+  synapseCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
 });
