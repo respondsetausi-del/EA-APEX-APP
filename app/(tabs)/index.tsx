@@ -15,11 +15,12 @@ import { LOGIN_DISABLED } from '@/constants/features';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, panelStyle, voiceStyle, layoutStyle } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, panelStyle, voiceStyle, layoutStyle } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
-  const otherEAs = Array.isArray(eas) ? eas.slice(1) : []; // All EAs except the first one
+  const otherEAs = Array.isArray(eas) ? eas.slice(1) : [];
+  const totalSymbols = (activeSymbols?.length || 0) + (mt4Symbols?.length || 0) + (mt5Symbols?.length || 0);
 
   console.log('HomeScreen render - EAs count:', eas?.length || 0, 'Primary EA:', primaryEA?.name || 'none');
 
@@ -240,7 +241,7 @@ export default function HomeScreen() {
         <View style={[styles.statsCard, { borderColor: glowColor + '30' }, webGlow(glowColor)]}>
           <View style={styles.statItem}>
             <Text style={[styles.statLabel, { color: glowColor + '80' }]}>SYMBOLS</Text>
-            <Text style={styles.statValue}>{activeSymbols?.length || 0}</Text>
+            <Text style={styles.statValue}>{totalSymbols}</Text>
           </View>
           <View style={[styles.statDivider, { backgroundColor: glowColor + '30' }]} />
           <View style={styles.statItem}>
@@ -306,7 +307,7 @@ export default function HomeScreen() {
         </View>
       </TouchableOpacity>
 
-      {/* FXSynapse AI Card */}
+      {/* Chart Scanner Card */}
       <TouchableOpacity
         style={[styles.synapseCard, { borderColor: glowColor + '50' }, webGlow(glowColor)]}
         activeOpacity={0.7}
@@ -316,7 +317,7 @@ export default function HomeScreen() {
           <TrendingUp color={glowColor} size={20} />
         </View>
         <View style={styles.synapseTextBlock}>
-          <Text style={[styles.synapseTitle, { color: glowColor, textShadowColor: glowColor + '80' }]}>FXSYNAPSE AI</Text>
+          <Text style={[styles.synapseTitle, { color: glowColor, textShadowColor: glowColor + '80' }]}>CHART SCANNER</Text>
           <Text style={[styles.synapseSubtitle, { color: glowColor + '8C' }]}>AI-POWERED CHART ANALYSIS</Text>
         </View>
       </TouchableOpacity>
@@ -325,7 +326,7 @@ export default function HomeScreen() {
         variant={voiceStyle} glowColor={glowColor} isBotActive={isBotActive}
         onToggleBot={() => setBotActive(!isBotActive)} onRemoveEA={handleRemoveActiveBot} onAddEA={handleAddNewEA}
         onSetGlowColor={setGlowColor} onToggleAvatar={setShowHeroAvatar}
-        eaName={primaryEA?.name || 'EA'} eaCount={eas.length} activeSymbolCount={activeSymbols?.length || 0}
+        eaName={primaryEA?.name || 'EA'} eaCount={eas.length} activeSymbolCount={totalSymbols}
       />
     </View>
   );
@@ -374,7 +375,7 @@ export default function HomeScreen() {
               {renderAvatar(120)}
               <Text testID="ea-title" style={styles.botMainName} numberOfLines={3} ellipsizeMode="tail">{primaryEA.name}</Text>
               <Text style={{ color: glowColor + '80', fontSize: 9, fontWeight: '600', letterSpacing: 2 }}>
-                {isBotActive ? 'ACTIVE' : 'IDLE'} {'\u2022'} {activeSymbols?.length || 0} SYMBOLS
+                {isBotActive ? 'ACTIVE' : 'IDLE'} {'\u2022'} {totalSymbols} SYMBOLS
               </Text>
             </View>
           </View>
@@ -415,7 +416,7 @@ export default function HomeScreen() {
             <View style={{ flexDirection: 'row', gap: 24 }}>
               <View style={{ alignItems: 'center' }}>
                 <Text style={{ color: glowColor + '80', fontSize: 8, fontWeight: '600', letterSpacing: 1 }}>SYMBOLS</Text>
-                <Text style={{ color: '#FFF', fontSize: 18, fontWeight: '800' }}>{activeSymbols?.length || 0}</Text>
+                <Text style={{ color: '#FFF', fontSize: 18, fontWeight: '800' }}>{totalSymbols}</Text>
               </View>
               <View style={{ width: 1, height: 28, backgroundColor: glowColor + '33' }} />
               <View style={{ alignItems: 'center' }}>
@@ -501,11 +502,11 @@ export default function HomeScreen() {
          : renderLayout1()}
       </ScrollView>
 
-      {/* FXSynapse AI WebView Modal */}
+      {/* Chart Scanner WebView Modal */}
       <Modal visible={synapseOpen} animationType="slide" onRequestClose={() => setSynapseOpen(false)}>
         <SafeAreaView style={styles.synapseModal}>
           <View style={styles.synapseModalHeader}>
-            <Text style={[styles.synapseModalTitle, { color: glowColor }]}>FXSYNAPSE AI</Text>
+            <Text style={[styles.synapseModalTitle, { color: glowColor }]}>CHART SCANNER</Text>
             <TouchableOpacity onPress={() => setSynapseOpen(false)} activeOpacity={0.7} style={styles.synapseCloseBtn}>
               <X color={glowColor} size={22} />
             </TouchableOpacity>
