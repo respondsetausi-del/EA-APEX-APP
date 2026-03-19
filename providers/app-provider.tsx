@@ -97,6 +97,8 @@ interface AppState {
   setVoiceStyle: (style: string) => void;
   layoutStyle: string;
   setLayoutStyle: (style: string) => void;
+  scannerStyle: string;
+  setScannerStyle: (style: string) => void;
   setUser: (user: User) => void;
   addEA: (ea: EA) => Promise<boolean>;
   removeEA: (id: string) => Promise<boolean>;
@@ -145,6 +147,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [panelStyle, setPanelStyleState] = useState<string>('A');
   const [voiceStyle, setVoiceStyleState] = useState<string>('A');
   const [layoutStyle, setLayoutStyleState] = useState<string>('1');
+  const [scannerStyle, setScannerStyleState] = useState<string>('F');
 
   // Load persisted data on mount
   useEffect(() => {
@@ -156,7 +159,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       console.log('Loading persisted data...');
 
       // Load all data in parallel but handle each independently
-      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData] = await Promise.allSettled([
+      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData, scannerData] = await Promise.allSettled([
         AsyncStorage.getItem('user'),
         AsyncStorage.getItem('eas'),
         AsyncStorage.getItem('mtAccount'),
@@ -172,7 +175,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         AsyncStorage.getItem('backgroundVideo'),
         AsyncStorage.getItem('panelStyle'),
         AsyncStorage.getItem('voiceStyle'),
-        AsyncStorage.getItem('layoutStyle')
+        AsyncStorage.getItem('layoutStyle'),
+        AsyncStorage.getItem('scannerStyle')
       ]);
 
       // Handle user data
@@ -400,6 +404,9 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       }
       if (layoutData.status === 'fulfilled' && layoutData.value) {
         setLayoutStyleState(layoutData.value);
+      }
+      if (scannerData.status === 'fulfilled' && scannerData.value) {
+        setScannerStyleState(scannerData.value);
       }
 
       console.log('Persisted data loading completed');
@@ -856,6 +863,11 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     try { await AsyncStorage.setItem('layoutStyle', style); } catch (e) { console.error('Error saving layoutStyle:', e); }
   }, []);
 
+  const setScannerStyle = useCallback(async (style: string) => {
+    setScannerStyleState(style);
+    try { await AsyncStorage.setItem('scannerStyle', style); } catch (e) { console.error('Error saving scannerStyle:', e); }
+  }, []);
+
   const startSignalsMonitoring = useCallback((phoneSecret: string) => {
     console.log('Starting signals monitoring with phone secret:', phoneSecret);
 
@@ -1002,6 +1014,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setVoiceStyle,
     layoutStyle,
     setLayoutStyle,
+    scannerStyle,
+    setScannerStyle,
     setUser,
     addEA,
     removeEA,
@@ -1024,5 +1038,5 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     dismissNewSignal,
     setTradingSignal: setTradingSignalCallback,
     setShowTradingWebView: setShowTradingWebViewCallback,
-  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback]);
+  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback]);
 });

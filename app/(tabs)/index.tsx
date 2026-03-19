@@ -8,6 +8,7 @@ import { WebView } from 'react-native-webview';
 import { RobotLogo } from '@/components/robot-logo';
 import { TradingPanel } from '@/components/trading-panel';
 import { VoiceCommandPill } from '@/components/voice-command';
+import { ScannerCard } from '@/components/scanner-card';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApp } from '@/providers/app-provider';
@@ -15,7 +16,7 @@ import { LOGIN_DISABLED } from '@/constants/features';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, panelStyle, voiceStyle, layoutStyle } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, panelStyle, voiceStyle, layoutStyle, scannerStyle } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -308,19 +309,11 @@ export default function HomeScreen() {
       </TouchableOpacity>
 
       {/* Chart Scanner Card */}
-      <TouchableOpacity
-        style={[styles.synapseCard, { borderColor: glowColor + '50' }, webGlow(glowColor)]}
-        activeOpacity={0.7}
+      <ScannerCard
+        variant={scannerStyle}
+        glowColor={glowColor}
         onPress={() => setSynapseOpen(true)}
-      >
-        <View style={[styles.synapseIconBox, { backgroundColor: glowColor + '15', borderColor: glowColor + '40' }]}>
-          <TrendingUp color={glowColor} size={20} />
-        </View>
-        <View style={styles.synapseTextBlock}>
-          <Text style={[styles.synapseTitle, { color: glowColor, textShadowColor: glowColor + '80' }]}>CHART SCANNER</Text>
-          <Text style={[styles.synapseSubtitle, { color: glowColor + '8C' }]}>AI-POWERED CHART ANALYSIS</Text>
-        </View>
-      </TouchableOpacity>
+      />
 
       <VoiceCommandPill
         variant={voiceStyle} glowColor={glowColor} isBotActive={isBotActive}
@@ -971,49 +964,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
 
-  // FXSynapse card
-  synapseCard: {
-    backgroundColor: '#080D1A',
-    borderRadius: 28,
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 56,
-    paddingHorizontal: 20,
-    marginBottom: 12,
-    borderWidth: 1,
-    gap: 14,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  synapseIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  synapseTextBlock: {
-    flex: 1,
-    flexDirection: 'column',
-    gap: 2,
-  },
-  synapseTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 6,
-  },
-  synapseSubtitle: {
-    fontSize: 10,
-    fontWeight: '500',
-    letterSpacing: 0.8,
-  },
-
-  // FXSynapse modal
+  // Chart Scanner modal
   synapseModal: {
     flex: 1,
     backgroundColor: '#000000',

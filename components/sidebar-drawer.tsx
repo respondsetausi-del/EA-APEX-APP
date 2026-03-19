@@ -59,6 +59,8 @@ interface SidebarDrawerProps {
   onVoiceStyleChange?: (style: string) => void;
   layoutStyle?: string;
   onLayoutStyleChange?: (style: string) => void;
+  scannerStyle?: string;
+  onScannerStyleChange?: (style: string) => void;
 }
 
 const STYLE_OPTIONS = [
@@ -75,6 +77,14 @@ const LAYOUT_OPTIONS = [
   { key: '3', label: 'Dash' },
   { key: '4', label: 'Cine' },
   { key: '5', label: 'Card' },
+];
+
+const SCANNER_OPTIONS = [
+  { key: 'A', label: 'Pill' },
+  { key: 'F', label: 'Radar' },
+  { key: 'H', label: 'Terminal' },
+  { key: 'I', label: 'Power' },
+  { key: 'K', label: 'Hybrid' },
 ];
 
 export function SidebarDrawer({
@@ -94,6 +104,8 @@ export function SidebarDrawer({
   onVoiceStyleChange,
   layoutStyle = '1',
   onLayoutStyleChange,
+  scannerStyle = 'K',
+  onScannerStyleChange,
 }: SidebarDrawerProps) {
   const slideAnim = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
@@ -349,6 +361,20 @@ export function SidebarDrawer({
                 const active = layoutStyle === opt.key;
                 return (
                   <TouchableOpacity key={opt.key} activeOpacity={0.7} onPress={() => onLayoutStyleChange?.(opt.key)}
+                    style={[styles.styleTile, { borderColor: active ? glowColor : 'rgba(255,255,255,0.15)' }, active && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
+                    <Text style={[styles.styleTileLabel, active && { color: glowColor }]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Scanner Style */}
+            <Text style={[styles.sectionLabel, { marginTop: 10 }]}>SCANNER STYLE</Text>
+            <View style={styles.styleTileRow}>
+              {SCANNER_OPTIONS.map((opt) => {
+                const active = scannerStyle === opt.key;
+                return (
+                  <TouchableOpacity key={opt.key} activeOpacity={0.7} onPress={() => onScannerStyleChange?.(opt.key)}
                     style={[styles.styleTile, { borderColor: active ? glowColor : 'rgba(255,255,255,0.15)' }, active && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
                     <Text style={[styles.styleTileLabel, active && { color: glowColor }]}>{opt.label}</Text>
                   </TouchableOpacity>
