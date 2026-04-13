@@ -82,13 +82,13 @@ export default function HomeScreen() {
         const response = await fetch(pickedImage.uri);
         const blob = await response.blob();
         const filename = pickedImage.fileName || `chart-${Date.now()}.${(blob.type.split('/')[1] || 'png')}`;
-        formData.append('chart', blob, filename);
+        formData.append('image', blob, filename);
       } else {
         const uri = pickedImage.uri;
         const filename = pickedImage.fileName || uri.split('/').pop() || `chart-${Date.now()}.jpg`;
         const mimeMatch = /\.(\w+)$/.exec(filename);
         const mimeType = pickedImage.mimeType || (mimeMatch ? `image/${mimeMatch[1].toLowerCase() === 'jpg' ? 'jpeg' : mimeMatch[1].toLowerCase()}` : 'image/jpeg');
-        formData.append('chart', { uri, name: filename, type: mimeType } as any);
+        formData.append('image', { uri, name: filename, type: mimeType } as any);
       }
 
       const res = await fetch(endpoint, {
