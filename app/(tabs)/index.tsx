@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView, Modal, ActivityIndicator, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode } from 'expo-av';
-import { Plus, TrendingUp, X } from 'lucide-react-native';
+import { Plus, TrendingUp, X, Upload, Scan, RefreshCw } from 'lucide-react-native';
 import { router } from 'expo-router';
-import { WebView } from 'react-native-webview';
+import * as ImagePicker from 'expo-image-picker';
 import { RobotLogo } from '@/components/robot-logo';
 import { TradingPanel } from '@/components/trading-panel';
 import { VoiceCommandPill } from '@/components/voice-command';
@@ -29,6 +29,94 @@ export default function HomeScreen() {
   const [avatarError, setAvatarError] = useState<boolean>(false);
   const [synapseOpen, setSynapseOpen] = useState<boolean>(false);
   const [hasCheckedAuth, setHasCheckedAuth] = useState<boolean>(false);
+
+  // Chart Scanner state
+  const [pickedImage, setPickedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [scanLoading, setScanLoading] = useState<boolean>(false);
+  const [scanResult, setScanResult] = useState<any | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const resetScanner = useCallback(() => {
+    setPickedImage(null);
+    setScanResult(null);
+    setScanError(null);
+    setScanLoading(false);
+  }, []);
+
+  const handlePickChartImage = useCallback(async () => {
+    try {
+      setScanError(null);
+      setScanResult(null);
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission needed', 'Please allow access to your media library to upload a chart.');
+          return;
+        }
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.9,
+      });
+      if (!result.canceled && result.assets && result.assets[0]) {
+        setPickedImage(result.assets[0]);
+      }
+    } catch (e) {
+      console.error('Pick chart image error:', e);
+      setScanError('Could not pick image. Please try again.');
+    }
+  }, []);
+
+  const handleScanChart = useCallback(async () => {
+    if (!pickedImage) return;
+    setScanLoading(true);
+    setScanError(null);
+    setScanResult(null);
+    try {
+      const endpoint = 'https://ea-converter.com/admin/api/chart-analyzer.php';
+      const formData = new FormData();
+
+      if (Platform.OS === 'web') {
+        // On web, convert the data URI / blob URI into a Blob
+        const response = await fetch(pickedImage.uri);
+        const blob = await response.blob();
+        const filename = pickedImage.fileName || `chart-${Date.now()}.${(blob.type.split('/')[1] || 'png')}`;
+        formData.append('chart', blob, filename);
+      } else {
+        const uri = pickedImage.uri;
+        const filename = pickedImage.fileName || uri.split('/').pop() || `chart-${Date.now()}.jpg`;
+        const mimeMatch = /\.(\w+)$/.exec(filename);
+        const mimeType = pickedImage.mimeType || (mimeMatch ? `image/${mimeMatch[1].toLowerCase() === 'jpg' ? 'jpeg' : mimeMatch[1].toLowerCase()}` : 'image/jpeg');
+        formData.append('chart', { uri, name: filename, type: mimeType } as any);
+      }
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const text = await res.text();
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = { raw: text };
+      }
+
+      if (!res.ok) {
+        const msg = (parsed && (parsed.error || parsed.message)) || `Server error (${res.status})`;
+        throw new Error(msg);
+      }
+
+      setScanResult(parsed);
+    } catch (e: any) {
+      console.error('Scan chart error:', e);
+      setScanError(e?.message || 'Failed to scan chart. Please try again.');
+    } finally {
+      setScanLoading(false);
+    }
+  }, [pickedImage]);
 
   // Check if user has completed email authentication
   useEffect(() => {
@@ -180,6 +268,49 @@ export default function HomeScreen() {
       ? `0 0 8px 2px ${color}80, 0 0 24px 6px ${color}33`
       : `0 0 6px 1px ${color}80, 0 0 18px 4px ${color}33`,
   } as any : {};
+
+  const renderScanResult = (result: any) => {
+    if (result === null || result === undefined) {
+      return <Text style={styles.scannerResultText}>No data returned.</Text>;
+    }
+    if (typeof result === 'string') {
+      return <Text style={styles.scannerResultText}>{result}</Text>;
+    }
+    if (result.raw && typeof result.raw === 'string') {
+      return <Text style={styles.scannerResultText}>{result.raw}</Text>;
+    }
+    // If the endpoint returned a common shape, pretty-print known fields first
+    const knownOrder = ['symbol', 'timeframe', 'trend', 'signal', 'direction', 'entry', 'stop_loss', 'stopLoss', 'take_profit', 'takeProfit', 'risk_reward', 'confidence', 'summary', 'analysis', 'notes'];
+    const entries: Array<[string, any]> = [];
+    const seen = new Set<string>();
+    for (const key of knownOrder) {
+      if (result && Object.prototype.hasOwnProperty.call(result, key)) {
+        entries.push([key, result[key]]);
+        seen.add(key);
+      }
+    }
+    if (result && typeof result === 'object') {
+      for (const key of Object.keys(result)) {
+        if (!seen.has(key)) entries.push([key, result[key]]);
+      }
+    }
+    return (
+      <View style={{ gap: 8 }}>
+        {entries.map(([key, value]) => {
+          const label = key.replace(/_/g, ' ').toUpperCase();
+          const rendered = typeof value === 'object' && value !== null
+            ? JSON.stringify(value, null, 2)
+            : String(value);
+          return (
+            <View key={key} style={styles.scannerResultRow}>
+              <Text style={[styles.scannerResultLabel, { color: glowColor }]}>{label}</Text>
+              <Text style={styles.scannerResultText}>{rendered}</Text>
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
 
   const renderHeroBg = () => (
     backgroundVideo ? (
@@ -495,29 +626,89 @@ export default function HomeScreen() {
          : renderLayout1()}
       </ScrollView>
 
-      {/* Chart Scanner WebView Modal */}
-      <Modal visible={synapseOpen} animationType="slide" onRequestClose={() => setSynapseOpen(false)}>
+      {/* Chart Scanner Upload Modal */}
+      <Modal
+        visible={synapseOpen}
+        animationType="slide"
+        onRequestClose={() => { setSynapseOpen(false); resetScanner(); }}
+      >
         <SafeAreaView style={styles.synapseModal}>
           <View style={styles.synapseModalHeader}>
             <Text style={[styles.synapseModalTitle, { color: glowColor }]}>CHART SCANNER</Text>
-            <TouchableOpacity onPress={() => setSynapseOpen(false)} activeOpacity={0.7} style={styles.synapseCloseBtn}>
+            <TouchableOpacity
+              onPress={() => { setSynapseOpen(false); resetScanner(); }}
+              activeOpacity={0.7}
+              style={styles.synapseCloseBtn}
+            >
               <X color={glowColor} size={22} />
             </TouchableOpacity>
           </View>
-          {Platform.OS === 'web' ? (
-            <View style={{ flex: 1 }}>
-              {React.createElement('iframe', {
-                src: 'https://fxsynapse-ai.vercel.app/partner/converter',
-                style: { width: '100%', height: '100%', border: 'none', backgroundColor: '#000' },
-              })}
-            </View>
-          ) : (
-            <WebView
-              source={{ uri: 'https://fxsynapse-ai.vercel.app/partner/converter' }}
-              style={{ flex: 1, backgroundColor: '#000' }}
-              startInLoadingState={true}
-            />
-          )}
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scannerBody}>
+            <Text style={styles.scannerIntro}>
+              Upload a screenshot of your chart and our AI will analyze it for entries, SL/TP and trend direction.
+            </Text>
+
+            {/* Upload / Preview area */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={handlePickChartImage}
+              style={[styles.scannerDropzone, { borderColor: glowColor + '66' }, webGlow(glowColor)]}
+            >
+              {pickedImage ? (
+                <Image source={{ uri: pickedImage.uri }} style={styles.scannerPreview} resizeMode="contain" />
+              ) : (
+                <View style={styles.scannerDropzoneInner}>
+                  <Upload color={glowColor} size={36} />
+                  <Text style={[styles.scannerDropzoneTitle, { color: glowColor }]}>TAP TO UPLOAD CHART</Text>
+                  <Text style={styles.scannerDropzoneSub}>PNG or JPG screenshot of your chart</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {pickedImage && (
+              <View style={styles.scannerActionsRow}>
+                <TouchableOpacity
+                  onPress={handlePickChartImage}
+                  activeOpacity={0.8}
+                  style={[styles.scannerSecondaryBtn, { borderColor: glowColor + '66' }]}
+                  disabled={scanLoading}
+                >
+                  <RefreshCw color={glowColor} size={16} />
+                  <Text style={[styles.scannerSecondaryText, { color: glowColor }]}>CHANGE IMAGE</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={handleScanChart}
+                  activeOpacity={0.8}
+                  style={[styles.scannerPrimaryBtn, { borderColor: glowColor, shadowColor: glowColor }, webGlow(glowColor)]}
+                  disabled={scanLoading}
+                >
+                  {scanLoading ? (
+                    <ActivityIndicator color={glowColor} size="small" />
+                  ) : (
+                    <Scan color={glowColor} size={18} />
+                  )}
+                  <Text style={[styles.scannerPrimaryText, { color: glowColor }]}>
+                    {scanLoading ? 'SCANNING…' : 'SCAN CHART'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {scanError && (
+              <View style={[styles.scannerErrorBox, { borderColor: '#FF4D4D' }]}>
+                <Text style={styles.scannerErrorText}>{scanError}</Text>
+              </View>
+            )}
+
+            {scanResult && (
+              <View style={[styles.scannerResultBox, { borderColor: glowColor + '66' }, webGlow(glowColor)]}>
+                <Text style={[styles.scannerResultTitle, { color: glowColor }]}>ANALYSIS RESULT</Text>
+                {renderScanResult(scanResult)}
+              </View>
+            )}
+          </ScrollView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -990,6 +1181,128 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // Chart Scanner Upload
+  scannerBody: {
+    padding: 20,
+    gap: 16,
+    paddingBottom: 40,
+  },
+  scannerIntro: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  scannerDropzone: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    backgroundColor: '#080D1A',
+    minHeight: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  scannerDropzoneInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    padding: 24,
+  },
+  scannerDropzoneTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+  },
+  scannerDropzoneSub: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 0.5,
+  },
+  scannerPreview: {
+    width: '100%',
+    height: 260,
+    backgroundColor: '#000',
+  },
+  scannerActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  scannerSecondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 28,
+    borderWidth: 1,
+    backgroundColor: '#080D1A',
+  },
+  scannerSecondaryText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  scannerPrimaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 28,
+    borderWidth: 1,
+    backgroundColor: '#080D1A',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  scannerPrimaryText: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+  },
+  scannerErrorBox: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255, 77, 77, 0.08)',
+  },
+  scannerErrorText: {
+    color: '#FF6B6B',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  scannerResultBox: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    backgroundColor: '#080D1A',
+    gap: 12,
+  },
+  scannerResultTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+  },
+  scannerResultRow: {
+    gap: 2,
+  },
+  scannerResultLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  scannerResultText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
   },
 
 });
