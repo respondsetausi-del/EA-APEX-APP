@@ -5,6 +5,8 @@ import { Video, ResizeMode } from 'expo-av';
 import { Plus, TrendingUp, X, Upload, Scan, RefreshCw } from 'lucide-react-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { WebView } from 'react-native-webview';
+import { analyzeOnWeb, buildInsights, buildAnalyzerHtml, type ChartInsights } from '@/utils/chart-heuristics';
 import { RobotLogo } from '@/components/robot-logo';
 import { TradingPanel } from '@/components/trading-panel';
 import { VoiceCommandPill } from '@/components/voice-command';
@@ -33,20 +35,23 @@ export default function HomeScreen() {
   // Chart Scanner state
   const [pickedImage, setPickedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [scanLoading, setScanLoading] = useState<boolean>(false);
-  const [scanResult, setScanResult] = useState<any | null>(null);
+  const [insights, setInsights] = useState<ChartInsights | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  // When set on native, a hidden WebView mounts and runs the analyzer on the data URI
+  const [analyzerDataUri, setAnalyzerDataUri] = useState<string | null>(null);
 
   const resetScanner = useCallback(() => {
     setPickedImage(null);
-    setScanResult(null);
+    setInsights(null);
     setScanError(null);
     setScanLoading(false);
+    setAnalyzerDataUri(null);
   }, []);
 
   const handlePickChartImage = useCallback(async () => {
     try {
       setScanError(null);
-      setScanResult(null);
+      setInsights(null);
       if (Platform.OS !== 'web') {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
@@ -58,6 +63,8 @@ export default function HomeScreen() {
         mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.9,
+        // Native analyzer needs raw bytes to build a data URI for the hidden WebView
+        base64: Platform.OS !== 'web',
       });
       if (!result.canceled && result.assets && result.assets[0]) {
         setPickedImage(result.assets[0]);
@@ -72,51 +79,52 @@ export default function HomeScreen() {
     if (!pickedImage) return;
     setScanLoading(true);
     setScanError(null);
-    setScanResult(null);
+    setInsights(null);
     try {
-      const endpoint = 'https://ea-converter.com/admin/api/chart-analyzer.php';
-      const formData = new FormData();
-
       if (Platform.OS === 'web') {
-        // On web, convert the data URI / blob URI into a Blob
-        const response = await fetch(pickedImage.uri);
-        const blob = await response.blob();
-        const filename = pickedImage.fileName || `chart-${Date.now()}.${(blob.type.split('/')[1] || 'png')}`;
-        formData.append('chart', blob, filename);
+        // Direct canvas analysis — no network call, no AI.
+        const result = await analyzeOnWeb(pickedImage.uri);
+        setInsights(result);
+        setScanLoading(false);
       } else {
-        const uri = pickedImage.uri;
-        const filename = pickedImage.fileName || uri.split('/').pop() || `chart-${Date.now()}.jpg`;
-        const mimeMatch = /\.(\w+)$/.exec(filename);
-        const mimeType = pickedImage.mimeType || (mimeMatch ? `image/${mimeMatch[1].toLowerCase() === 'jpg' ? 'jpeg' : mimeMatch[1].toLowerCase()}` : 'image/jpeg');
-        formData.append('chart', { uri, name: filename, type: mimeType } as any);
+        // Native: feed the image into a hidden WebView analyzer.
+        const base64 = pickedImage.base64;
+        if (!base64) {
+          throw new Error('Could not read image data. Please pick the image again.');
+        }
+        const mime = pickedImage.mimeType || 'image/jpeg';
+        const dataUri = `data:${mime};base64,${base64}`;
+        setAnalyzerDataUri(dataUri);
+        // scanLoading stays true until onAnalyzerMessage fires.
       }
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        body: formData,
-      });
-
-      const text = await res.text();
-      let parsed: any = null;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = { raw: text };
-      }
-
-      if (!res.ok) {
-        const msg = (parsed && (parsed.error || parsed.message)) || `Server error (${res.status})`;
-        throw new Error(msg);
-      }
-
-      setScanResult(parsed);
     } catch (e: any) {
       console.error('Scan chart error:', e);
-      setScanError(e?.message || 'Failed to scan chart. Please try again.');
-    } finally {
+      setScanError(e?.message || 'Failed to analyze chart. Please try again.');
       setScanLoading(false);
     }
   }, [pickedImage]);
+
+  const onAnalyzerMessage = useCallback((event: any) => {
+    try {
+      const payload = JSON.parse(event?.nativeEvent?.data || '{}');
+      if (payload && payload.__error) {
+        throw new Error(
+          payload.__error === 'image_load_failed'
+            ? 'Could not decode the image. Try a PNG/JPG screenshot.'
+            : `Analyzer failed (${payload.__error})`
+        );
+      }
+      const result = buildInsights(payload);
+      setInsights(result);
+      setScanError(null);
+    } catch (e: any) {
+      console.error('Analyzer message error:', e);
+      setScanError(e?.message || 'Analyzer failed. Please try again.');
+    } finally {
+      setAnalyzerDataUri(null);
+      setScanLoading(false);
+    }
+  }, []);
 
   // Check if user has completed email authentication
   useEffect(() => {
@@ -269,45 +277,38 @@ export default function HomeScreen() {
       : `0 0 6px 1px ${color}80, 0 0 18px 4px ${color}33`,
   } as any : {};
 
-  const renderScanResult = (result: any) => {
-    if (result === null || result === undefined) {
-      return <Text style={styles.scannerResultText}>No data returned.</Text>;
-    }
-    if (typeof result === 'string') {
-      return <Text style={styles.scannerResultText}>{result}</Text>;
-    }
-    if (result.raw && typeof result.raw === 'string') {
-      return <Text style={styles.scannerResultText}>{result.raw}</Text>;
-    }
-    // If the endpoint returned a common shape, pretty-print known fields first
-    const knownOrder = ['symbol', 'timeframe', 'trend', 'signal', 'direction', 'entry', 'stop_loss', 'stopLoss', 'take_profit', 'takeProfit', 'risk_reward', 'confidence', 'summary', 'analysis', 'notes'];
-    const entries: Array<[string, any]> = [];
-    const seen = new Set<string>();
-    for (const key of knownOrder) {
-      if (result && Object.prototype.hasOwnProperty.call(result, key)) {
-        entries.push([key, result[key]]);
-        seen.add(key);
-      }
-    }
-    if (result && typeof result === 'object') {
-      for (const key of Object.keys(result)) {
-        if (!seen.has(key)) entries.push([key, result[key]]);
-      }
-    }
+  const renderInsights = (data: ChartInsights) => {
+    const statRows: Array<{ label: string; value: string }> = [
+      { label: 'BIAS', value: data.bias === 'bullish' ? 'Bullish' : data.bias === 'bearish' ? 'Bearish' : 'Balanced' },
+      { label: 'STRUCTURE', value: data.trend === 'up' ? 'Uptrend' : data.trend === 'down' ? 'Downtrend' : 'Sideways range' },
+      { label: 'VOLATILITY', value: data.volatility.charAt(0).toUpperCase() + data.volatility.slice(1) },
+      { label: 'MOMENTUM', value: data.momentum.charAt(0).toUpperCase() + data.momentum.slice(1) },
+    ];
     return (
-      <View style={{ gap: 8 }}>
-        {entries.map(([key, value]) => {
-          const label = key.replace(/_/g, ' ').toUpperCase();
-          const rendered = typeof value === 'object' && value !== null
-            ? JSON.stringify(value, null, 2)
-            : String(value);
-          return (
-            <View key={key} style={styles.scannerResultRow}>
-              <Text style={[styles.scannerResultLabel, { color: glowColor }]}>{label}</Text>
-              <Text style={styles.scannerResultText}>{rendered}</Text>
+      <View style={{ gap: 12 }}>
+        <Text style={styles.scannerResultText}>{data.summary}</Text>
+
+        <View style={styles.scannerMixRow}>
+          <View style={[styles.scannerMixBar, { flex: Math.max(1, data.bullishPercent), backgroundColor: '#22C55E' }]} />
+          <View style={[styles.scannerMixBar, { flex: Math.max(1, data.bearishPercent), backgroundColor: '#EF4444' }]} />
+        </View>
+        <View style={styles.scannerMixLabels}>
+          <Text style={styles.scannerMixLabel}>{data.bullishPercent}% bullish</Text>
+          <Text style={styles.scannerMixLabel}>{data.bearishPercent}% bearish</Text>
+        </View>
+
+        <View style={{ gap: 8, marginTop: 4 }}>
+          {statRows.map(row => (
+            <View key={row.label} style={styles.scannerResultRow}>
+              <Text style={[styles.scannerResultLabel, { color: glowColor }]}>{row.label}</Text>
+              <Text style={styles.scannerResultText}>{row.value}</Text>
             </View>
-          );
-        })}
+          ))}
+        </View>
+
+        <Text style={styles.scannerDisclaimer}>
+          Descriptive chart diagnostics only — not financial advice or a trade recommendation.
+        </Text>
       </View>
     );
   };
@@ -702,13 +703,26 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {scanResult && (
+            {insights && (
               <View style={[styles.scannerResultBox, { borderColor: glowColor + '66' }, webGlow(glowColor)]}>
-                <Text style={[styles.scannerResultTitle, { color: glowColor }]}>ANALYSIS RESULT</Text>
-                {renderScanResult(scanResult)}
+                <Text style={[styles.scannerResultTitle, { color: glowColor }]}>CHART DIAGNOSTICS</Text>
+                {renderInsights(insights)}
               </View>
             )}
           </ScrollView>
+
+          {/* Hidden native-only analyzer: renders the image on a canvas and posts back pixel stats. */}
+          {Platform.OS !== 'web' && analyzerDataUri && (
+            <WebView
+              source={{ html: buildAnalyzerHtml(analyzerDataUri) }}
+              onMessage={onAnalyzerMessage}
+              javaScriptEnabled
+              domStorageEnabled
+              originWhitelist={['*']}
+              style={styles.scannerHiddenWebView}
+              pointerEvents="none"
+            />
+          )}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -1303,6 +1317,43 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     lineHeight: 18,
+  },
+  scannerMixRow: {
+    flexDirection: 'row',
+    height: 10,
+    borderRadius: 5,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  scannerMixBar: {
+    height: '100%',
+  },
+  scannerMixLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  scannerMixLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+  },
+  scannerDisclaimer: {
+    marginTop: 6,
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 10,
+    fontWeight: '500',
+    fontStyle: 'italic',
+    lineHeight: 14,
+  },
+  scannerHiddenWebView: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    left: -9999,
+    top: -9999,
+    backgroundColor: 'transparent',
   },
 
 });
