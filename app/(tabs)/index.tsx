@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView, Modal, ActivityIndicator, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode } from 'expo-av';
-import { Plus, TrendingUp, X, Upload, Scan, RefreshCw } from 'lucide-react-native';
+import { Plus, TrendingUp, TrendingDown, Minus, X, Upload, Scan, RefreshCw } from 'lucide-react-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { WebView } from 'react-native-webview';
@@ -284,8 +284,51 @@ export default function HomeScreen() {
       { label: 'VOLATILITY', value: data.volatility.charAt(0).toUpperCase() + data.volatility.slice(1) },
       { label: 'MOMENTUM', value: data.momentum.charAt(0).toUpperCase() + data.momentum.slice(1) },
     ];
+
+    const signalColor =
+      data.signal.action === 'BUY' ? '#22C55E'
+      : data.signal.action === 'SELL' ? '#EF4444'
+      : '#9CA3AF';
+    const signalBg =
+      data.signal.action === 'BUY' ? 'rgba(34, 197, 94, 0.12)'
+      : data.signal.action === 'SELL' ? 'rgba(239, 68, 68, 0.12)'
+      : 'rgba(156, 163, 175, 0.10)';
+    const SignalIcon =
+      data.signal.action === 'BUY' ? TrendingUp
+      : data.signal.action === 'SELL' ? TrendingDown
+      : Minus;
+    const structureLabel =
+      data.trend === 'up' ? 'UPTREND'
+      : data.trend === 'down' ? 'DOWNTREND'
+      : 'SIDEWAYS';
+
     return (
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: 14 }}>
+        {/* ── Large signal hero ─────────────────────────────────────── */}
+        <View
+          style={[
+            styles.scannerSignalBox,
+            { backgroundColor: signalBg, borderColor: signalColor, shadowColor: signalColor },
+            webGlow(signalColor, true),
+          ]}
+        >
+          <View style={styles.scannerSignalRow}>
+            <SignalIcon color={signalColor} size={40} strokeWidth={2.5} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.scannerSignalHeadline, { color: signalColor }]}>
+                {data.signal.headline}
+              </Text>
+              <Text style={[styles.scannerSignalMeta, { color: signalColor + 'CC' }]}>
+                {data.signal.action === 'WAIT'
+                  ? `${structureLabel} \u2022 ${data.volatility.toUpperCase()} VOL`
+                  : `${data.signal.strength.toUpperCase()} \u2022 ${structureLabel} \u2022 ${data.volatility.toUpperCase()} VOL`}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.scannerSignalRationale}>{data.signal.rationale}</Text>
+        </View>
+
+        {/* ── Supporting diagnostics ───────────────────────────────── */}
         <Text style={styles.scannerResultText}>{data.summary}</Text>
 
         <View style={styles.scannerMixRow}>
@@ -1317,6 +1360,41 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     lineHeight: 18,
+  },
+  scannerSignalBox: {
+    borderRadius: 18,
+    borderWidth: 2,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    gap: 12,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  scannerSignalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  scannerSignalHeadline: {
+    fontSize: 30,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+  },
+  scannerSignalMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+  },
+  scannerSignalRationale: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 19,
   },
   scannerMixRow: {
     flexDirection: 'row',

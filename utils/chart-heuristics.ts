@@ -6,6 +6,13 @@
  * framed as *diagnostics*, not predictions.
  */
 
+export type TradeSignal = {
+  action: 'BUY' | 'SELL' | 'WAIT';
+  strength: 'strong' | 'moderate' | 'weak';
+  headline: string;
+  rationale: string;
+};
+
 export type ChartInsights = {
   bias: 'bullish' | 'bearish' | 'neutral';
   trend: 'up' | 'down' | 'sideways';
@@ -16,6 +23,7 @@ export type ChartInsights = {
   trendSlope: number;
   volatilityScore: number;
   momentumShift: number;
+  signal: TradeSignal;
   summary: string;
   bullets: string[];
 };
@@ -72,6 +80,67 @@ export function buildInsights(stats: RawStats): ChartInsights {
   const trendLabel =
     trend === 'up' ? 'Uptrend' : trend === 'down' ? 'Downtrend' : 'Sideways range';
 
+  // ── Signal derivation ──────────────────────────────────────────────
+  // Uptrend  → BUY
+  // Downtrend → SELL
+  // Sideways → WAIT (no directional edge)
+  const biasAgrees =
+    (trend === 'up' && bias === 'bullish') ||
+    (trend === 'down' && bias === 'bearish');
+  const biasConflicts =
+    (trend === 'up' && bias === 'bearish') ||
+    (trend === 'down' && bias === 'bullish');
+  const momentumSupports =
+    (trend === 'up' && stats.rightBias > 0 && momentum === 'strengthening') ||
+    (trend === 'down' && stats.rightBias < 0 && momentum === 'strengthening');
+
+  let action: TradeSignal['action'];
+  if (trend === 'up') action = 'BUY';
+  else if (trend === 'down') action = 'SELL';
+  else action = 'WAIT';
+
+  let strength: TradeSignal['strength'] = 'moderate';
+  if (action !== 'WAIT') {
+    if (biasConflicts) strength = 'weak';
+    else if (biasAgrees && momentumSupports) strength = 'strong';
+    else strength = 'moderate';
+  }
+
+  const volNote =
+    volatility === 'high'
+      ? 'High volatility — widen stops and size down.'
+      : volatility === 'moderate'
+      ? 'Moderate volatility — standard stop placement.'
+      : 'Low volatility — tighter stops are workable.';
+
+  const candleDominance =
+    action === 'BUY' ? `${bullishPercent}% bullish candles` : `${bearishPercent}% bearish candles`;
+
+  let rationale: string;
+  if (action === 'WAIT') {
+    rationale =
+      `Price is ranging sideways with a ${bullishPercent}/${bearishPercent} candle mix — no clean directional edge. ` +
+      `Wait for a break out of the range before committing. ${volNote}`;
+  } else if (strength === 'strong') {
+    rationale =
+      `Clean ${trendLabel.toLowerCase()} backed by ${candleDominance} and ${momentum} momentum. ` +
+      `Bias and slope are aligned — ride the move. ${volNote}`;
+  } else if (strength === 'weak') {
+    const contradictingBias = bias === 'bullish' ? 'bullish' : 'bearish';
+    rationale =
+      `${trendLabel} slope is in place but ${contradictingBias} candle majority contradicts the move — possible exhaustion or reversal setup. ` +
+      `Wait for confirmation before entering. ${volNote}`;
+  } else {
+    rationale =
+      `${trendLabel} with ${candleDominance} and ${momentum} momentum. ` +
+      `Trend is present but not fully confirmed — manage risk carefully. ${volNote}`;
+  }
+
+  const headline =
+    action === 'BUY' ? 'BUY SIGNAL' : action === 'SELL' ? 'SELL SIGNAL' : 'NO SIGNAL';
+
+  const signal: TradeSignal = { action, strength, headline, rationale };
+
   const summary =
     `${biasLabel} candle majority (${bullishPercent}% green / ${bearishPercent}% red) on a ` +
     `${trendLabel.toLowerCase()} with ${volatility} volatility. Recent momentum is ${momentum}.`;
@@ -93,6 +162,7 @@ export function buildInsights(stats: RawStats): ChartInsights {
     trendSlope: stats.slope,
     volatilityScore: stats.spreadVariance,
     momentumShift,
+    signal,
     summary,
     bullets,
   };
