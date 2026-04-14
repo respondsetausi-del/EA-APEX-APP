@@ -74,6 +74,10 @@ interface AppState {
   mt4Account: MT4Account | null;
   mt5Account: MT5Account | null;
   isFirstTime: boolean;
+  /** True once loadPersistedData has finished. Auth gates MUST wait on this
+   *  before making redirect decisions, otherwise they evaluate stale defaults
+   *  and send fresh devices to the wrong place. */
+  isHydrated: boolean;
   activeSymbols: ActiveSymbol[];
   mt4Symbols: MT4Symbol[];
   mt5Symbols: MT5Symbol[];
@@ -130,6 +134,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [mt4Account, setMT4AccountState] = useState<MT4Account | null>(null);
   const [mt5Account, setMT5AccountState] = useState<MT5Account | null>(null);
   const [isFirstTime, setIsFirstTimeState] = useState<boolean>(true);
+  const [isHydrated, setIsHydrated] = useState<boolean>(false);
   const [activeSymbols, setActiveSymbols] = useState<ActiveSymbol[]>([]);
   const [mt4Symbols, setMT4Symbols] = useState<MT4Symbol[]>([]);
   const [mt5Symbols, setMT5Symbols] = useState<MT5Symbol[]>([]);
@@ -423,6 +428,10 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       setMT4Symbols([]);
       setMT5Symbols([]);
       setIsBotActive(false);
+    } finally {
+      // Signal hydration regardless of success/failure so the auth gate
+      // can start evaluating. On error we've reset to safe defaults above.
+      setIsHydrated(true);
     }
   };
 
@@ -991,6 +1000,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     mt4Account,
     mt5Account,
     isFirstTime,
+    isHydrated,
     activeSymbols,
     mt4Symbols,
     mt5Symbols,
@@ -1038,5 +1048,5 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     dismissNewSignal,
     setTradingSignal: setTradingSignalCallback,
     setShowTradingWebView: setShowTradingWebViewCallback,
-  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback]);
+  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback]);
 });

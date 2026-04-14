@@ -19,7 +19,6 @@ import { ScannerCard } from '@/components/scanner-card';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApp } from '@/providers/app-provider';
-import { LOGIN_DISABLED } from '@/constants/features';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
@@ -35,7 +34,6 @@ export default function HomeScreen() {
   const [logoError, setLogoError] = useState<boolean>(false);
   const [avatarError, setAvatarError] = useState<boolean>(false);
   const [synapseOpen, setSynapseOpen] = useState<boolean>(false);
-  const [hasCheckedAuth, setHasCheckedAuth] = useState<boolean>(false);
 
   // Chart Scanner state
   const [pickedImage, setPickedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -307,48 +305,9 @@ export default function HomeScreen() {
     } catch {}
   }, [insights]);
 
-  // Check if user has completed email authentication
-  useEffect(() => {
-    // Only run the check once on mount, not on every EA length change
-    if (hasCheckedAuth) return;
-
-    const checkAuthenticationStatus = async () => {
-      try {
-        // Wait for initial state to load
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        // If not first time but no EAs, check if email auth was completed
-        if (!isFirstTime && eas.length === 0) {
-          const emailAuthenticated = await AsyncStorage.getItem('emailAuthenticated');
-
-          // If email authentication was never completed
-          if (!emailAuthenticated || emailAuthenticated !== 'true') {
-            if (LOGIN_DISABLED) {
-              // Bypass: skip login, go straight to license (DB/auth saved for later)
-              console.log('Login disabled - bypassing to license...');
-              await AsyncStorage.setItem('emailAuthenticated', 'true');
-              router.replace('/license');
-            } else {
-              console.log('Email authentication not completed, redirecting to login...');
-              await setIsFirstTime(true);
-              router.replace('/login');
-            }
-          } else {
-            // Email authentication was completed, but no license added yet - go to license page
-            console.log('Email authenticated but no EA added, redirecting to license...');
-            router.replace('/license');
-          }
-        }
-
-        setHasCheckedAuth(true);
-      } catch (error) {
-        console.error('Error checking authentication status:', error);
-        setHasCheckedAuth(true);
-      }
-    };
-
-    checkAuthenticationStatus();
-  }, [isFirstTime, eas.length, hasCheckedAuth]);
+  // Auth routing is owned by <AuthGate> in app/_layout.tsx. No duplicate
+  // check here — that effect had a 300ms race window and a LOGIN_DISABLED
+  // bypass that together allowed unauthenticated users onto /license.
 
   const getEAImageUrl = useCallback((ea: EA | null): string | null => {
     if (!ea || !ea.userData || !ea.userData.owner) return null;
@@ -367,15 +326,13 @@ export default function HomeScreen() {
   const handleStartNow = async () => {
     try {
       await setIsFirstTime(false);
-      if (LOGIN_DISABLED) {
-        console.log('Start Now pressed - login disabled, navigating to license...');
-        await AsyncStorage.setItem('emailAuthenticated', 'true');
-        router.push('/license');
-      } else {
-        console.log('Start Now pressed, navigating to login...');
-        await AsyncStorage.removeItem('emailAuthenticated');
-        router.push('/login');
-      }
+      // Always route fresh users to /login. The old LOGIN_DISABLED shortcut
+      // would silently mark the device as authenticated and skip straight to
+      // /license — which is exactly the hole that was letting non-paying
+      // users land on the activation form.
+      console.log('Start Now pressed, navigating to login...');
+      await AsyncStorage.removeItem('emailAuthenticated');
+      router.push('/login');
     } catch (error) {
       console.error('Error navigating:', error);
     }

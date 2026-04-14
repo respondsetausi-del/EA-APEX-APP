@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, Alert, ActivityIndicator, Image, Linking, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { router } from 'expo-router';
@@ -18,7 +18,32 @@ export default function LoginScreen() {
   const [modalMessage, setModalMessage] = useState<string>('');
   const [paymentVisible, setPaymentVisible] = useState<boolean>(false);
   const [paymentUrl, setPaymentUrl] = useState<string>('');
-  const { setUser } = useApp();
+  const { setUser, eas, isHydrated } = useApp();
+
+  // If the user is already authenticated (persisted emailAuthenticated flag),
+  // never show them the login form again — bounce them to the right place.
+  // This closes the loophole where a shared URL to /login could be used as a
+  // way to re-enter credentials even though the device is already bound.
+  useEffect(() => {
+    if (!isHydrated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await AsyncStorage.getItem('emailAuthenticated');
+        if (cancelled) return;
+        if (v === 'true') {
+          if (eas.length > 0) {
+            router.replace('/(tabs)');
+          } else {
+            router.replace('/license');
+          }
+        }
+      } catch {
+        // ignore — worst case we just show the login form
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isHydrated, eas.length]);
 
   const handleProceed = async () => {
     if (!mentorId.trim() || !email.trim()) {
