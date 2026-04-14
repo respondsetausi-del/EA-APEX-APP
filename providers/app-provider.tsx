@@ -2,7 +2,7 @@ import createContextHook from '@nkzw/create-context-hook';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform, Alert } from 'react-native';
-import { LicenseData } from '@/services/api';
+import { LicenseData, apiService } from '@/services/api';
 import signalsMonitor, { SignalLog } from '@/services/signals-monitor';
 import databaseSignalsPollingService, { DatabaseSignal } from '@/services/database-signals-polling';
 
@@ -434,6 +434,48 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       setIsHydrated(true);
     }
   };
+
+  // ── SUBSCRIPTION VERIFICATION ON EVERY APP OPEN ──
+  // Checks server on launch. If revoked, expired, or device mismatch → instant kick.
+  const verifySubscription = useCallback(async () => {
+    if (!user?.email) return;
+    try {
+      console.log('Verifying subscription for:', user.email);
+      const account = await apiService.authenticate({
+        email: user.email,
+        mentor: user.mentorId || '0',
+      });
+
+      const shouldKick =
+        account.status === 'not_found' ||
+        !account.paid ||
+        (account as any).expired ||
+        (account as any).device_mismatch;
+
+      if (shouldKick) {
+        console.log('Subscription invalid — kicking user:', {
+          status: account.status,
+          paid: account.paid,
+          expired: (account as any).expired,
+          device_mismatch: (account as any).device_mismatch,
+        });
+        // Clear all auth state
+        setUserState(null);
+        setEAs([]);
+        await AsyncStorage.multiRemove(['user', 'eas', 'emailAuthenticated']);
+      }
+    } catch (error) {
+      // Network error — don't kick, let them use cached state
+      console.log('Subscription check failed (network) — allowing cached access');
+    }
+  }, [user?.email, user?.mentorId]);
+
+  // Run verification after user state is hydrated
+  useEffect(() => {
+    if (isHydrated && user?.email) {
+      verifySubscription();
+    }
+  }, [isHydrated, user?.email]);
 
   const setUser = useCallback(async (newUser: User) => {
     setUserState(newUser);
