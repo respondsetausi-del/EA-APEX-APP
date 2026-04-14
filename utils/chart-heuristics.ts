@@ -23,6 +23,10 @@ export type ChartInsights = {
   trendSlope: number;
   volatilityScore: number;
   momentumShift: number;
+  /** 0-100 — how confident the heuristic is in its signal */
+  confidence: number;
+  /** Normalized notable price-level Y positions (0 = top of image, 1 = bottom). Max 3. */
+  levels: number[];
   signal: TradeSignal;
   summary: string;
   bullets: string[];
@@ -36,6 +40,7 @@ export type RawStats = {
   spreadVariance: number;
   leftBias: number;
   rightBias: number;
+  levels: number[];
 };
 
 /**
@@ -139,6 +144,18 @@ export function buildInsights(stats: RawStats): ChartInsights {
   const headline =
     action === 'BUY' ? 'BUY SIGNAL' : action === 'SELL' ? 'SELL SIGNAL' : 'NO SIGNAL';
 
+  // Confidence 0-100 — weighted blend of slope magnitude, candle-mix extremity,
+  // bias agreement, and momentum support.
+  let confidence = 45;
+  confidence += Math.abs(stats.slope) * 30;                            // slope → up to +30
+  const biasExtremity = Math.abs(bullishPercent - 50) / 50;            // 0..1
+  confidence += biasExtremity * 25;                                    // mix → up to +25
+  if (biasAgrees) confidence += 8;
+  if (biasConflicts) confidence -= 22;
+  if (momentumSupports) confidence += 6;
+  if (action === 'WAIT') confidence = Math.min(confidence, 45);        // sideways is always low-conviction
+  confidence = Math.max(8, Math.min(96, Math.round(confidence)));
+
   const signal: TradeSignal = { action, strength, headline, rationale };
 
   const summary =
@@ -162,6 +179,8 @@ export function buildInsights(stats: RawStats): ChartInsights {
     trendSlope: stats.slope,
     volatilityScore: stats.spreadVariance,
     momentumShift,
+    confidence,
+    levels: Array.isArray(stats.levels) ? stats.levels.slice(0, 3) : [],
     signal,
     summary,
     bullets,
@@ -244,6 +263,34 @@ export const ANALYZER_CORE = `function analyzePixels(imageData, width, height) {
   var rightTotal = Math.max(1, rightGreen + rightRed);
   var leftBias = (leftGreen - leftRed) / leftTotal;
   var rightBias = (rightGreen - rightRed) / rightTotal;
+  var histBins = 16;
+  var hist = new Array(histBins);
+  for (var h = 0; h < histBins; h++) hist[h] = 0;
+  for (var x = 0; x < width; x++) {
+    if (colCounts[x] > 0) {
+      var cy = colSums[x] / colCounts[x];
+      var bin = Math.floor((cy / height) * histBins);
+      if (bin < 0) bin = 0;
+      if (bin >= histBins) bin = histBins - 1;
+      hist[bin] += 1;
+    }
+  }
+  var binIdx = [];
+  for (var j = 0; j < histBins; j++) binIdx.push({ i: j, c: hist[j] });
+  binIdx.sort(function(a, b) { return b.c - a.c; });
+  var levels = [];
+  var used = [];
+  for (var k = 0; k < binIdx.length && levels.length < 3; k++) {
+    if (binIdx[k].c <= 0) break;
+    var candidate = (binIdx[k].i + 0.5) / histBins;
+    var tooClose = false;
+    for (var u = 0; u < used.length; u++) {
+      if (Math.abs(used[u] - candidate) < 0.08) { tooClose = true; break; }
+    }
+    if (tooClose) continue;
+    used.push(candidate);
+    levels.push(candidate);
+  }
   return {
     greenCount: greenCount,
     redCount: redCount,
@@ -251,7 +298,8 @@ export const ANALYZER_CORE = `function analyzePixels(imageData, width, height) {
     slope: slope,
     spreadVariance: spreadVariance,
     leftBias: leftBias,
-    rightBias: rightBias
+    rightBias: rightBias,
+    levels: levels
   };
 }`;
 
