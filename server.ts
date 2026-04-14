@@ -1444,6 +1444,18 @@ async function handleApi(request: Request): Promise<Response> {
       return new Response('Method Not Allowed', { status: 405 });
     }
 
+    // Admin: reset device binding
+    if (pathname === '/api/admin-reset-device') {
+      const route = await import('./app/api/admin-reset-device/route.ts');
+      if (request.method === 'POST' && typeof route.POST === 'function') {
+        return route.POST(request) as Promise<Response>;
+      }
+      if (request.method === 'GET' && typeof route.GET === 'function') {
+        return route.GET() as Promise<Response>;
+      }
+      return new Response('Method Not Allowed', { status: 405 });
+    }
+
     // Add symbols routing
     if (pathname === '/api/symbols') {
       const route = await import('./app/api/symbols/route.ts');
