@@ -1,8 +1,9 @@
-import { Stack } from "expo-router";
+import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState, Component, ReactNode } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppProvider, useApp } from "@/providers/app-provider";
 import { View, Platform, Text, TouchableOpacity, StyleSheet, AppState } from "react-native";
 import { DynamicIsland } from "@/components/dynamic-island";
@@ -131,6 +132,85 @@ const errorStyles = StyleSheet.create({
   },
 });
 
+/**
+ * Centralized auth gate. Runs AFTER provider hydration and before any
+ * protected route is visible. Authoritative source for which route a user
+ * is allowed to see given their persisted auth state.
+ *
+ * Rules (evaluated in order):
+ *   - not hydrated yet              → render a blank screen (no children)
+ *   - on /login                     → always allowed
+ *   - no emailAuthenticated flag    → force /login
+ *   - on /license                   → allowed (user has email auth)
+ *   - on tabs (root) with no EA     → force /license
+ *   - on tabs with EA               → allowed
+ *
+ * Any route not explicitly handled falls through to /login as the safe
+ * default. LicenseScreen and LoginScreen also have their own belt-and-
+ * suspenders checks in case this gate is ever bypassed.
+ */
+function AuthGate({ children }: { children: ReactNode }) {
+  const { isHydrated, eas } = useApp();
+  const pathname = usePathname();
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState<boolean>(false);
+  const [hasEmailAuth, setHasEmailAuth] = useState<boolean>(false);
+
+  // Re-read the persisted flag every time the pathname changes. Using
+  // AsyncStorage rather than a context value keeps this resilient to any
+  // screen that writes the flag directly (login.tsx does).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await AsyncStorage.getItem('emailAuthenticated');
+        if (!cancelled) {
+          setHasEmailAuth(v === 'true');
+          setAuthChecked(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setHasEmailAuth(false);
+          setAuthChecked(true);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!isHydrated || !authChecked) return;
+
+    const path = pathname || '/';
+    const onLogin = path === '/login' || path.startsWith('/login');
+    const onLicense = path === '/license' || path.startsWith('/license');
+
+    // Never redirect while already on /login — that's the safe fallback.
+    if (onLogin) return;
+
+    if (!hasEmailAuth) {
+      // Unauthenticated users MUST go to /login, no matter which route
+      // they deep-linked to (including /license — the active exploit).
+      router.replace('/login');
+      return;
+    }
+
+    // Authenticated but no license yet → push them to /license.
+    // We only force this when on the tabs root; allow /license itself
+    // and any sub-routes they might already be navigating to.
+    if (eas.length === 0 && !onLicense) {
+      router.replace('/license');
+      return;
+    }
+  }, [isHydrated, authChecked, hasEmailAuth, pathname, eas.length, router]);
+
+  if (!isHydrated || !authChecked) {
+    return <View style={{ flex: 1, backgroundColor: '#000000' }} />;
+  }
+
+  return <>{children}</>;
+}
+
 function RootLayoutNav() {
   const {
     isFirstTime,
@@ -167,12 +247,14 @@ function RootLayoutNav() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="login" />
-        <Stack.Screen name="license" />
-        <Stack.Screen name="trade-config" options={{ presentation: "modal" }} />
-      </Stack>
+      <AuthGate>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="login" />
+          <Stack.Screen name="license" />
+          <Stack.Screen name="trade-config" options={{ presentation: "modal" }} />
+        </Stack>
+      </AuthGate>
       {/* Always render DynamicIsland when conditions are met, regardless of app state */}
       <DynamicIsland
         visible={!isFirstTime && eas.length > 0 && isBotActive}
