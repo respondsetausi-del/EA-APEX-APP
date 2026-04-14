@@ -1379,45 +1379,12 @@ async function handleApi(request: Request): Promise<Response> {
     }
 
     if (pathname === '/api/check-email') {
-      if (request.method === 'GET') {
-        if (url.searchParams.get('ping') === '1') {
-          return new Response(JSON.stringify({ ok: true, message: 'API reachable' }), {
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        try {
-          const testEmail = url.searchParams.get('email') || 'test@test.com';
-          const result = await proxyCheckEmail(testEmail);
-          return new Response(JSON.stringify({
-            db_connected: true,
-            proxy: 'ea-converter.com',
-            email_tested: testEmail,
-            found: result.found === 1,
-            data: result.found === 1 ? { found: result.found, paid: result.paid, used: result.used } : null
-          }), { headers: { 'Content-Type': 'application/json' } });
-        } catch (error) {
-          const err = error || {};
-          return new Response(JSON.stringify({
-            db_connected: false,
-            proxy: 'ea-converter.com',
-            error: (err as Error).message || 'Unknown',
-            code: (err as Error & { code?: string }).code || 'UNKNOWN'
-          }), { headers: { 'Content-Type': 'application/json' } });
-        }
+      const route = await import('./app/api/check-email/route.ts');
+      if (request.method === 'POST' && typeof route.POST === 'function') {
+        return route.POST(request) as Promise<Response>;
       }
-      if (request.method === 'POST') {
-        try {
-          const body = await request.json().catch(() => ({}));
-          const email = (body?.email as string | undefined)?.trim().toLowerCase();
-          if (!email) {
-            return new Response(JSON.stringify({ error: 'Email is required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-          }
-          const result = await proxyCheckEmail(email);
-          return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
-        } catch (error) {
-          console.error('❌ check-email proxy error:', error);
-          return new Response(JSON.stringify({ found: 0, used: 0, paid: 0, invalidMentor: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        }
+      if (request.method === 'GET' && typeof route.GET === 'function') {
+        return route.GET() as Promise<Response>;
       }
       return new Response('Method Not Allowed', { status: 405 });
     }
