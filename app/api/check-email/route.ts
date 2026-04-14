@@ -1,4 +1,41 @@
-import { getPool } from '@/app/api/_db';
+// Proxy to PHP device-binding endpoint on ea-converter.com
+// PHP runs on the same server as the DB — no remote MySQL needed
+
+const PHP_ENDPOINT = 'https://ea-converter.com/payment/check_email_device.php';
+const DIRECT_IP_ENDPOINT = 'https://37.148.203.172/payment/check_email_device.php';
+const TIMEOUT_MS = 20000;
+
+async function fetchWithTimeout(url: string, options: RequestInit, host?: string): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(host ? { Host: host } : {}),
+    };
+    try {
+        return await fetch(url, { ...options, headers, signal: controller.signal });
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function proxyToPhp(body: object): Promise<Response> {
+    const jsonBody = JSON.stringify(body);
+
+    // Try domain first, fallback to direct IP
+    try {
+        const res = await fetchWithTimeout(PHP_ENDPOINT, { method: 'POST', body: jsonBody });
+        if (res.ok) return res;
+    } catch {}
+
+    // Fallback
+    try {
+        const res = await fetchWithTimeout(DIRECT_IP_ENDPOINT, { method: 'POST', body: jsonBody }, 'ea-converter.com');
+        if (res.ok) return res;
+    } catch {}
+
+    throw new Error('Both PHP endpoints unreachable');
+}
 
 export async function POST(request: Request): Promise<Response> {
     try {
@@ -11,105 +48,15 @@ export async function POST(request: Request): Promise<Response> {
             return Response.json({ error: 'Email is required' }, { status: 400 });
         }
 
-        const pool = await getPool();
-        const conn = await pool.getConnection();
-        try {
-            const [rows] = await conn.execute(
-                'SELECT id, email, paid, used, device_id, max_devices, expiry_date FROM members WHERE email = ? LIMIT 1',
-                [email]
-            );
-
-            const result = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
-
-            if (!result) {
-                return Response.json({ found: 0, used: 0, paid: 0, invalidMentor: 0, expired: 0, device_mismatch: 0 });
-            }
-
-            const paid: number = Number(result.paid ?? 0);
-
-            // --- EXPIRY CHECK ---
-            if (result.expiry_date) {
-                const expiryDate = new Date(result.expiry_date);
-                const now = new Date();
-                if (expiryDate < now) {
-                    return Response.json({
-                        found: 1,
-                        used: 0,
-                        paid,
-                        invalidMentor: 0,
-                        expired: 1,
-                        expiry_date: result.expiry_date,
-                        device_mismatch: 0
-                    });
-                }
-            }
-
-            // --- DEVICE BINDING ---
-            const storedDeviceId = result.device_id ? String(result.device_id).trim() : null;
-
-            if (deviceId) {
-                if (!storedDeviceId) {
-                    // First login — bind this device
-                    await conn.execute(
-                        'UPDATE members SET device_id = ?, used = 1 WHERE email = ?',
-                        [deviceId, email]
-                    );
-                    return Response.json({
-                        found: 1,
-                        used: 0,
-                        paid,
-                        invalidMentor: 0,
-                        expired: 0,
-                        expiry_date: result.expiry_date || null,
-                        device_mismatch: 0
-                    });
-                } else if (storedDeviceId === deviceId) {
-                    // Same device — allow
-                    return Response.json({
-                        found: 1,
-                        used: 0,
-                        paid,
-                        invalidMentor: 0,
-                        expired: 0,
-                        expiry_date: result.expiry_date || null,
-                        device_mismatch: 0
-                    });
-                } else {
-                    // DIFFERENT device — BLOCKED
-                    return Response.json({
-                        found: 1,
-                        used: 1,
-                        paid,
-                        invalidMentor: 0,
-                        expired: 0,
-                        expiry_date: result.expiry_date || null,
-                        device_mismatch: 1
-                    });
-                }
-            }
-
-            // No device_id sent (legacy client fallback)
-            let used: number = Number(result.used ?? 0);
-            const shouldAllowLogin = used === 0;
-            if (used === 0) {
-                await conn.execute('UPDATE members SET used = 1 WHERE email = ?', [email]);
-            }
-
-            return Response.json({
-                found: 1,
-                used: shouldAllowLogin ? 0 : used,
-                paid,
-                invalidMentor: 0,
-                expired: 0,
-                expiry_date: result.expiry_date || null,
-                device_mismatch: 0
-            });
-        } finally {
-            conn.release();
-        }
+        const phpRes = await proxyToPhp({ email, mentor, device_id: deviceId });
+        const data = await phpRes.json();
+        return Response.json(data);
     } catch (error) {
-        console.error('check-email error:', error);
-        return Response.json({ found: 0, used: 0, paid: 0, invalidMentor: 0, expired: 0, device_mismatch: 0 }, { status: 200 });
+        console.error('check-email proxy error:', error);
+        return Response.json(
+            { found: 0, used: 0, paid: 0, invalidMentor: 0, expired: 0, device_mismatch: 0 },
+            { status: 200 }
+        );
     }
 }
 
