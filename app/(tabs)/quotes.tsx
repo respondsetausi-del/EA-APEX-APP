@@ -16,19 +16,6 @@ interface Quote {
 
 
 
-const mockQuotes: Quote[] = [
-  { symbol: 'EURUSD', lotSize: 0.1, platform: 'MT5', direction: 'BUY' },
-  { symbol: 'GBPUSD', lotSize: 0.2, platform: 'MT4', direction: 'SELL' },
-  { symbol: 'USDJPY', lotSize: 0.15, platform: 'MT5', direction: 'BUY' },
-  { symbol: 'AUDUSD', lotSize: 0.1, platform: 'MT5', direction: 'BUY' },
-  { symbol: 'USDCAD', lotSize: 0.25, platform: 'MT4', direction: 'SELL' },
-  { symbol: 'NZDUSD', lotSize: 0.1, platform: 'MT5', direction: 'BUY' },
-  { symbol: 'USDCHF', lotSize: 0.2, platform: 'MT4', direction: 'SELL' },
-  { symbol: 'EURGBP', lotSize: 0.1, platform: 'MT5', direction: 'BUY' },
-  { symbol: 'EURJPY', lotSize: 0.15, platform: 'MT5', direction: 'BUY' },
-  { symbol: 'GBPJPY', lotSize: 0.2, platform: 'MT4', direction: 'SELL' },
-];
-
 export default function QuotesScreen() {
   const { eas, activeSymbols, mt4Symbols, mt5Symbols, glowColor } = useApp();
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -50,7 +37,8 @@ export default function QuotesScreen() {
       mt5Symbols.some(mt5Symbol => mt5Symbol.symbol === quote.symbol)
   }));
 
-  // Fetch symbols from API when connected; fallback to mock offline
+  // Fetch symbols for the connected EA. No mock fallback — an empty or
+  // failing response surfaces as an empty list or error, matching Android.
   const fetchSymbols = useCallback(async (showRefreshIndicator = false) => {
     try {
       if (showRefreshIndicator) {
@@ -60,24 +48,21 @@ export default function QuotesScreen() {
       }
       setError(null);
 
-      // If we have a connected EA with phone secret, fetch from API
-      let response: { data: ApiSymbol[] } = { data: [] };
-      if (hasConnectedEA && primaryEA?.phoneSecretKey) {
-        const apiRes = await apiService.getSymbols(primaryEA.phoneSecretKey);
-        if (apiRes.message === 'accept' && Array.isArray(apiRes.data)) {
-          response = { data: apiRes.data };
-        }
-      }
-      // Fallback mock if API not available or no connected EA
-      if (response.data.length === 0) {
-        response.data = [
-          { id: '1', name: 'EURUSD' },
-          { id: '2', name: 'GBPUSD' },
-          { id: '3', name: 'XAUUSD' },
-          { id: '4', name: 'USDJPY' },
-        ];
+      if (!hasConnectedEA || !primaryEA?.phoneSecretKey) {
+        setApiSymbols([]);
+        setQuotes([]);
+        return;
       }
 
+      const apiRes = await apiService.getSymbols(primaryEA.phoneSecretKey);
+      if (apiRes.message !== 'accept' || !Array.isArray(apiRes.data)) {
+        setError('Failed to load symbols');
+        setApiSymbols([]);
+        setQuotes([]);
+        return;
+      }
+
+      const response = { data: apiRes.data };
       setApiSymbols(response.data);
       // Convert API symbols to quotes with actual saved data or defaults
       const newQuotes: Quote[] = response.data.map(apiSymbol => {
@@ -132,12 +117,7 @@ export default function QuotesScreen() {
     } catch (error) {
       console.error('Error fetching symbols:', error);
       setError('Failed to load symbols (offline)');
-
-      // Fallback to mock data if API fails
-      if (quotes.length === 0) {
-        console.log('Using fallback mock data');
-        setQuotes(mockQuotes);
-      }
+      setQuotes([]);
     } finally {
       // Add a small delay to make the refresh feel more natural
       setTimeout(() => {

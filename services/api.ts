@@ -192,16 +192,37 @@ class ApiService {
     return { message: 'accept', version: 1 } as unknown as App;
   }
 
+  // Hit the same PHP endpoint the Android app uses
+  // (see ea-converter/app/src/main/java/.../utils/Constants.kt → BASE_URL +
+  //  network/api/RoboTraderAPI.kt → @GET("symbols/")).
+  //
+  // We used to route this through the RN-side proxy at /api/symbols, but that
+  // proxy's SQL keyed on licences.phone_secret_code which doesn't match the
+  // column the PHP admin writes, so it silently returned zero symbols and the
+  // quotes screen fell into its mock-data fallback. Calling the PHP endpoint
+  // directly keeps iOS and Android in lock-step.
   async getSymbols(phoneSecret: string): Promise<SymbolsResponse> {
     if (!phoneSecret) return { message: 'error' };
-    const res = await fetch(`${BASE_URL}/api/symbols?phone_secret=${encodeURIComponent(phoneSecret)}`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
+    const url = `https://ea-converter.com/admin/api/symbols?phone_secret=${encodeURIComponent(phoneSecret)}`;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+    } catch (networkError) {
+      console.error('[getSymbols] network error:', networkError);
+      return { message: 'error' };
+    }
+    if (!res.ok) {
+      console.error(`[getSymbols] HTTP ${res.status} from ${url}`);
+      return { message: 'error' };
+    }
     try {
       const data = (await res.json()) as SymbolsResponse;
       return data;
-    } catch {
+    } catch (parseError) {
+      console.error('[getSymbols] parse error:', parseError);
       return { message: 'error' };
     }
   }
