@@ -43,20 +43,204 @@ export type RawStats = {
   levels: number[];
 };
 
+// ── Variation pools ──────────────────────────────────────────────────
+// Same stats → same copy (deterministic pick). Different stats → almost
+// always different phrasing. Keeps rescans stable while fresh charts feel
+// fresh — no two images should read the same.
+
+type Bucket =
+  | 'BUY-strong' | 'BUY-moderate' | 'BUY-weak'
+  | 'SELL-strong' | 'SELL-moderate' | 'SELL-weak'
+  | 'WAIT-weak';
+
+const HEADLINES: Record<Bucket, string[]> = {
+  'BUY-strong': [
+    'BUY SIGNAL',
+    'LONG ENTRY',
+    'BULLISH BREAKOUT',
+    'UPSIDE MOMENTUM',
+    'STRONG LONG',
+    'RIDE THE TREND',
+  ],
+  'BUY-moderate': [
+    'BUY BIAS',
+    'LONG SETUP',
+    'BULLISH LEAN',
+    'TENTATIVE LONG',
+    'BUY THE DIP',
+    'UPSIDE BIAS',
+  ],
+  'BUY-weak': [
+    'CAUTIOUS LONG',
+    'BUY — EXHAUSTION RISK',
+    'LOW-CONVICTION LONG',
+    'MIXED BULLISH',
+    'BUY WITH CAUTION',
+    'FADING LONG',
+  ],
+  'SELL-strong': [
+    'SELL SIGNAL',
+    'SHORT ENTRY',
+    'BEARISH BREAKDOWN',
+    'DOWNSIDE MOMENTUM',
+    'STRONG SHORT',
+    'FADE THE RALLY',
+  ],
+  'SELL-moderate': [
+    'SELL BIAS',
+    'SHORT SETUP',
+    'BEARISH LEAN',
+    'TENTATIVE SHORT',
+    'SELL THE RIP',
+    'DOWNSIDE BIAS',
+  ],
+  'SELL-weak': [
+    'CAUTIOUS SHORT',
+    'SELL — EXHAUSTION RISK',
+    'LOW-CONVICTION SHORT',
+    'MIXED BEARISH',
+    'SELL WITH CAUTION',
+    'FADING SHORT',
+  ],
+  'WAIT-weak': [
+    'NO CLEAN EDGE',
+    'RANGE-BOUND',
+    'SIT ON HANDS',
+    'NO SIGNAL',
+    'INDECISIVE TAPE',
+    'WAIT FOR BREAK',
+  ],
+};
+
+const RATIONALES: Record<Bucket, string[]> = {
+  'BUY-strong': [
+    'Buyers are clearly in control — {bullishPercent}% of candles are green and structure is climbing with {momentum} momentum. Bias and slope are aligned, ride the move.',
+    'Clean uptrend backed by a {bullishPercent}/{bearishPercent} bullish majority; every pullback is being bought. This is as textbook as a long gets.',
+    'Demand is stacking — {bullishPercent}% green candles on a confirmed uptrend leaves dip-buyers firmly in control. Momentum is {momentum}.',
+    'Bulls own the tape. {bullishPercent}% bullish candles, rising highs, and {momentum} momentum behind the push — clean long setup.',
+    'Pixel read is stacked bullish: {bullishPercent}% green, slope rising, momentum {momentum}. Trend-followers get paid here.',
+    'Strong long conditions — {bullishPercent}% bullish dominance, expanding uptrend, and buyers pressing on every dip.',
+  ],
+  'BUY-moderate': [
+    '{bullishPercent}% of candles are green, which tilts bias to the upside, though slope is flat enough that this reads as a lean, not a breakout.',
+    'Bullish lean with a {bullishPercent}/{bearishPercent} candle mix — the idea is right, but wait for a clean higher-low before pressing.',
+    'Buyers have the edge ({bullishPercent}% green candles), but structure is not fully confirming yet. Momentum is {momentum}.',
+    'The tape leans long: {bullishPercent}% bullish candles on an unresolved slope. Conviction is moderate until the trend kicks in.',
+    'There is a bullish bias baked into the candles ({bullishPercent}%); without a strong slope this is a graze long, not a pound-the-table long.',
+    'Buyers hold the balance at {bullishPercent}% of candles — call it bullish, but size accordingly until slope confirms.',
+  ],
+  'BUY-weak': [
+    'Candle count leans bullish ({bullishPercent}% green), but slope is actually rolling over — classic exhaustion risk. Treat longs as counter-trend.',
+    'Bullish candle majority ({bullishPercent}%) on a downward slope reads like late longs getting trapped. Wait for confirmation before pressing.',
+    '{bullishPercent}% green candles contradict a downward-sloping structure — possible reversal brewing, not a clean long. Manage risk tightly.',
+    'Green candle count is high ({bullishPercent}%) but structure is breaking lower. Longs here are fighting the slope.',
+    'The candle mix says buy ({bullishPercent}% green), the slope says otherwise. Conflicts like this usually resolve against the latecomers.',
+    'Bullish participation ({bullishPercent}%) on a bearish slope — either bulls overwhelm the structure or buyers get squeezed out. Low-conviction setup.',
+  ],
+  'SELL-strong': [
+    'Sellers are dictating the tape — {bearishPercent}% of candles are red and structure is rolling over with {momentum} momentum. Fade every bounce.',
+    'Clean downtrend backed by a {bearishPercent}/{bullishPercent} bearish majority; every rally is being sold into. Textbook short setup.',
+    'Supply is hitting bounces — {bearishPercent}% red candles on a confirmed downtrend leaves sellers firmly in control. Momentum is {momentum}.',
+    'Bears own the tape. {bearishPercent}% bearish candles, lower lows, and {momentum} momentum pushing the move — clean short setup.',
+    'Pixel read is stacked bearish: {bearishPercent}% red, slope falling, momentum {momentum}. Trend-followers get paid on the short side.',
+    'Strong short conditions — {bearishPercent}% bearish dominance, expanding downtrend, and sellers pressing on every bounce.',
+  ],
+  'SELL-moderate': [
+    '{bearishPercent}% of candles are red, which tilts bias to the downside, though slope is flat enough that this reads as a lean, not a breakdown.',
+    'Bearish lean with a {bearishPercent}/{bullishPercent} candle mix — the idea is right, but wait for a clean lower-high before shorting.',
+    'Sellers have the edge ({bearishPercent}% red candles), but structure is not fully confirming yet. Momentum is {momentum}.',
+    'The tape leans short: {bearishPercent}% bearish candles on an unresolved slope. Conviction is moderate until the trend kicks in.',
+    'There is a bearish bias baked into the candles ({bearishPercent}%); without a strong slope this is a graze short, not a full commit.',
+    'Sellers hold the balance at {bearishPercent}% of candles — call it bearish, but size accordingly until slope confirms.',
+  ],
+  'SELL-weak': [
+    'Candle count leans bearish ({bearishPercent}% red), but slope is actually rising — classic exhaustion risk. Treat shorts as counter-trend.',
+    'Bearish candle majority ({bearishPercent}%) on an upward slope reads like late shorts getting squeezed. Wait for confirmation.',
+    '{bearishPercent}% red candles contradict an upward-sloping structure — possible reversal brewing, not a clean short. Manage risk tightly.',
+    'Red candle count is high ({bearishPercent}%) but structure is pushing higher. Shorts here are fighting the slope.',
+    'The candle mix says sell ({bearishPercent}% red), the slope says otherwise. These conflicts usually resolve against the latecomers.',
+    'Bearish participation ({bearishPercent}%) on a bullish slope — either bears overwhelm the structure or sellers get covered out. Low-conviction setup.',
+  ],
+  'WAIT-weak': [
+    'Candle mix is practically 50/50 ({bullishPercent}/{bearishPercent}) on a flat slope — no clean edge for either side. Patience pays here.',
+    'Buyers and sellers are evenly matched ({bullishPercent}% / {bearishPercent}%) and structure is sideways. Sit on hands until the market picks a side.',
+    'Tape is in equilibrium at {bullishPercent}/{bearishPercent} with no directional slope. Wait for a range break before committing.',
+    'Nothing resolves: {bullishPercent}/{bearishPercent} candle split, flat structure. This is a do-nothing chart.',
+    'Neither side is winning — {bullishPercent}/{bearishPercent} mix on a flat slope. Step aside until one takes control.',
+    'Perfect indecision: {bullishPercent}/{bearishPercent} candles, flat structure, no reason to force a trade.',
+  ],
+};
+
+const VOL_NOTES: Record<ChartInsights['volatility'], string[]> = {
+  low: [
+    'Volatility is low — tight stops are workable.',
+    'Range is compressed — keep risk close.',
+    'Quiet tape — stops can sit tight.',
+  ],
+  moderate: [
+    'Moderate volatility — standard stop placement.',
+    'Range is normal — size as usual.',
+    'Volatility is in the neutral zone — no special adjustments.',
+  ],
+  high: [
+    'High volatility — widen stops and size down.',
+    'Range is wide — give stops room and cut size.',
+    'Volatile tape — reduce size and respect the noise.',
+  ],
+};
+
+const SUMMARIES: string[] = [
+  '{biasLabel} candle majority ({bullishPercent}% green / {bearishPercent}% red) on a {trendLabel} with {volatility} volatility. Momentum is {momentum}.',
+  'Candle split sits at {bullishPercent}/{bearishPercent} ({biasLabel} lean). Structure is a {trendLabel}, volatility reads {volatility}, momentum {momentum}.',
+  '{trendLabel} backdrop with {bullishPercent}% bullish candles vs {bearishPercent}% bearish. Volatility {volatility}, momentum {momentum}.',
+  '{biasLabel} tape ({bullishPercent}/{bearishPercent} candle mix) on a {trendLabel}. {volatility} volatility, {momentum} momentum.',
+];
+
+/**
+ * Deterministic seed derived from the raw pixel stats. Identical input →
+ * identical seed → identical copy. Different images almost always produce
+ * different seeds (stats are continuous, so collisions are rare).
+ */
+function pickSeed(stats: RawStats): number {
+  const s = Math.round(stats.slope * 1000);
+  const v = Math.round(stats.spreadVariance * 777);
+  const g = stats.greenCount | 0;
+  const r = stats.redCount | 0;
+  const lb = Math.round((stats.leftBias + 1) * 500);
+  const rb = Math.round((stats.rightBias + 1) * 500);
+  let h = (s * 13) ^ (v * 17) ^ (g * 23) ^ (r * 29) ^ (lb * 31) ^ (rb * 37);
+  h = (h ^ (h >>> 16)) >>> 0;
+  return h;
+}
+
+function pickFrom<T>(arr: T[], seed: number, salt: number): T {
+  return arr[(seed + salt) % arr.length];
+}
+
+function interpolate(tpl: string, vars: Record<string, string | number>): string {
+  return tpl.replace(/\{(\w+)\}/g, (_, k) => {
+    const v = vars[k];
+    return v === undefined || v === null ? '' : String(v);
+  });
+}
+
 /**
  * Pure function — turns raw pixel stats into human-friendly insights.
  * No DOM / no Image / no Canvas — runs on any JS runtime.
+ *
+ * Signal is bias-first: bullish candle majority → BUY, bearish → SELL.
+ * WAIT is deliberately rare (only when the mix is near-even AND the
+ * slope is flat). Slope + momentum drive the *strength*, not the
+ * direction — so a 72% green chart on a slightly down slope is still
+ * a BUY, just a weaker one.
  */
 export function buildInsights(stats: RawStats): ChartInsights {
   const total = Math.max(1, stats.greenCount + stats.redCount);
-  const bullishPercent = Math.round((stats.greenCount / total) * 100);
+  const greenRatio = stats.greenCount / total;
+  const bullishPercent = Math.round(greenRatio * 100);
   const bearishPercent = 100 - bullishPercent;
 
-  let bias: ChartInsights['bias'];
-  if (bullishPercent >= 58) bias = 'bullish';
-  else if (bullishPercent <= 42) bias = 'bearish';
-  else bias = 'neutral';
-
+  // Trend from slope — used for strength/details, not signal direction.
   let trend: ChartInsights['trend'];
   if (stats.slope > 0.15) trend = 'up';
   else if (stats.slope < -0.15) trend = 'down';
@@ -80,91 +264,88 @@ export function buildInsights(stats: RawStats): ChartInsights {
     momentum = 'weakening';
   }
 
+  // Bias: bullish if more green candles, bearish if more red.
+  // Neutral is deliberately rare — only when the candle mix is within ±1%
+  // of 50/50 AND the slope is flat. Most charts pick a side.
+  const nearEven = Math.abs(greenRatio - 0.5) < 0.01;
+  const flatSlope = Math.abs(stats.slope) < 0.08;
+  let bias: ChartInsights['bias'];
+  if (nearEven && flatSlope) bias = 'neutral';
+  else if (greenRatio > 0.5) bias = 'bullish';
+  else if (greenRatio < 0.5) bias = 'bearish';
+  else bias = stats.slope >= 0 ? 'bullish' : 'bearish';
+
+  // ── Signal — bias-first ────────────────────────────────────────────
+  // Bullish candles → BUY. Bearish candles → SELL. Neutral → WAIT (rare).
+  let action: TradeSignal['action'];
+  if (bias === 'bullish') action = 'BUY';
+  else if (bias === 'bearish') action = 'SELL';
+  else action = 'WAIT';
+
+  // Strength uses slope + momentum as confirmations. A contradicting slope
+  // drops the signal to weak (exhaustion / reversal language in the pool).
+  const slopeAgrees =
+    (action === 'BUY' && stats.slope > 0.05) ||
+    (action === 'SELL' && stats.slope < -0.05);
+  const slopeContradicts =
+    (action === 'BUY' && stats.slope < -0.05) ||
+    (action === 'SELL' && stats.slope > 0.05);
+  const momentumSupports =
+    (action === 'BUY' && stats.rightBias > 0.1 && momentum === 'strengthening') ||
+    (action === 'SELL' && stats.rightBias < -0.1 && momentum === 'strengthening');
+
+  let strength: TradeSignal['strength'];
+  if (action === 'WAIT') strength = 'weak';
+  else if (slopeContradicts) strength = 'weak';
+  else if (slopeAgrees && momentumSupports) strength = 'strong';
+  else strength = 'moderate';
+
   const biasLabel =
     bias === 'bullish' ? 'Bullish' : bias === 'bearish' ? 'Bearish' : 'Balanced';
   const trendLabel =
-    trend === 'up' ? 'Uptrend' : trend === 'down' ? 'Downtrend' : 'Sideways range';
+    trend === 'up' ? 'uptrend' : trend === 'down' ? 'downtrend' : 'sideways range';
 
-  // ── Signal derivation ──────────────────────────────────────────────
-  // Uptrend  → BUY
-  // Downtrend → SELL
-  // Sideways → WAIT (no directional edge)
-  const biasAgrees =
-    (trend === 'up' && bias === 'bullish') ||
-    (trend === 'down' && bias === 'bearish');
-  const biasConflicts =
-    (trend === 'up' && bias === 'bearish') ||
-    (trend === 'down' && bias === 'bullish');
-  const momentumSupports =
-    (trend === 'up' && stats.rightBias > 0 && momentum === 'strengthening') ||
-    (trend === 'down' && stats.rightBias < 0 && momentum === 'strengthening');
+  // ── Deterministic variation picker ─────────────────────────────────
+  const seed = pickSeed(stats);
+  const bucket = `${action}-${strength}` as Bucket;
 
-  let action: TradeSignal['action'];
-  if (trend === 'up') action = 'BUY';
-  else if (trend === 'down') action = 'SELL';
-  else action = 'WAIT';
+  const headline = pickFrom(HEADLINES[bucket] || HEADLINES['WAIT-weak'], seed, 0);
+  const rationaleTpl = pickFrom(RATIONALES[bucket] || RATIONALES['WAIT-weak'], seed, 1);
+  const volNoteTpl = pickFrom(VOL_NOTES[volatility], seed, 2);
+  const summaryTpl = pickFrom(SUMMARIES, seed, 3);
 
-  let strength: TradeSignal['strength'] = 'moderate';
-  if (action !== 'WAIT') {
-    if (biasConflicts) strength = 'weak';
-    else if (biasAgrees && momentumSupports) strength = 'strong';
-    else strength = 'moderate';
-  }
+  const vars = {
+    bullishPercent,
+    bearishPercent,
+    biasLabel,
+    trendLabel,
+    momentum,
+    volatility,
+  };
 
-  const volNote =
-    volatility === 'high'
-      ? 'High volatility — widen stops and size down.'
-      : volatility === 'moderate'
-      ? 'Moderate volatility — standard stop placement.'
-      : 'Low volatility — tighter stops are workable.';
+  const rationale = `${interpolate(rationaleTpl, vars)} ${volNoteTpl}`;
+  const summary = interpolate(summaryTpl, vars);
 
-  const candleDominance =
-    action === 'BUY' ? `${bullishPercent}% bullish candles` : `${bearishPercent}% bearish candles`;
-
-  let rationale: string;
-  if (action === 'WAIT') {
-    rationale =
-      `Price is ranging sideways with a ${bullishPercent}/${bearishPercent} candle mix — no clean directional edge. ` +
-      `Wait for a break out of the range before committing. ${volNote}`;
-  } else if (strength === 'strong') {
-    rationale =
-      `Clean ${trendLabel.toLowerCase()} backed by ${candleDominance} and ${momentum} momentum. ` +
-      `Bias and slope are aligned — ride the move. ${volNote}`;
-  } else if (strength === 'weak') {
-    const contradictingBias = bias === 'bullish' ? 'bullish' : 'bearish';
-    rationale =
-      `${trendLabel} slope is in place but ${contradictingBias} candle majority contradicts the move — possible exhaustion or reversal setup. ` +
-      `Wait for confirmation before entering. ${volNote}`;
-  } else {
-    rationale =
-      `${trendLabel} with ${candleDominance} and ${momentum} momentum. ` +
-      `Trend is present but not fully confirmed — manage risk carefully. ${volNote}`;
-  }
-
-  const headline =
-    action === 'BUY' ? 'BUY SIGNAL' : action === 'SELL' ? 'SELL SIGNAL' : 'NO SIGNAL';
-
-  // Confidence 0-100 — weighted blend of slope magnitude, candle-mix extremity,
-  // bias agreement, and momentum support.
-  let confidence = 45;
-  confidence += Math.abs(stats.slope) * 30;                            // slope → up to +30
-  const biasExtremity = Math.abs(bullishPercent - 50) / 50;            // 0..1
-  confidence += biasExtremity * 25;                                    // mix → up to +25
-  if (biasAgrees) confidence += 8;
-  if (biasConflicts) confidence -= 22;
+  // Confidence — bias-first floors higher for BUY/SELL, drops hard on
+  // slope contradictions (that's the exhaustion case).
+  let confidence = 55;
+  confidence += Math.abs(stats.slope) * 25;
+  const biasExtremity = Math.abs(bullishPercent - 50) / 50;
+  confidence += biasExtremity * 30;
+  if (slopeAgrees) confidence += 8;
+  if (slopeContradicts) confidence -= 20;
   if (momentumSupports) confidence += 6;
-  if (action === 'WAIT') confidence = Math.min(confidence, 45);        // sideways is always low-conviction
-  confidence = Math.max(8, Math.min(96, Math.round(confidence)));
+  if (action === 'WAIT') confidence = Math.min(confidence, 40);
+  confidence = Math.max(10, Math.min(96, Math.round(confidence)));
 
   const signal: TradeSignal = { action, strength, headline, rationale };
 
-  const summary =
-    `${biasLabel} candle majority (${bullishPercent}% green / ${bearishPercent}% red) on a ` +
-    `${trendLabel.toLowerCase()} with ${volatility} volatility. Recent momentum is ${momentum}.`;
+  const structureLabel =
+    trend === 'up' ? 'Uptrend' : trend === 'down' ? 'Downtrend' : 'Sideways range';
 
   const bullets = [
     `Candle mix: ${bullishPercent}% bullish, ${bearishPercent}% bearish`,
-    `Structure: ${trendLabel}`,
+    `Structure: ${structureLabel}`,
     `Volatility: ${volatility}`,
     `Momentum: ${momentum}`,
   ];
