@@ -67,6 +67,13 @@ export default function HomeScreen() {
   const SCAN_HISTORY_KEY = 'scanHistory.v1';
   const SIGNAL_TTL_MS = 15 * 60 * 1000;
 
+  // Each scan holds the revealed result for a random 10–20s so the phase
+  // progression has room to play out and the experience feels like genuine
+  // analysis. These refs track the target + elapsed so we can cancel cleanly.
+  const scanTargetMsRef = useRef<number>(0);
+  const scanStartedAtRef = useRef<number>(0);
+  const scanRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Hydrate history once.
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +91,12 @@ export default function HomeScreen() {
   }, []);
 
   const resetScanner = useCallback(() => {
+    // Cancel any in-flight reveal so closing the modal mid-scan doesn't
+    // pop the result in later.
+    if (scanRevealTimerRef.current) {
+      clearTimeout(scanRevealTimerRef.current);
+      scanRevealTimerRef.current = null;
+    }
     setPickedImage(null);
     setInsights(null);
     setScanError(null);
@@ -144,8 +157,35 @@ export default function HomeScreen() {
     });
   }, []);
 
+  // Holds the real analysis result until at least `scanTargetMsRef.current`
+  // has elapsed since the scan started. This is what makes each scan feel
+  // like 10–20s of work even though the pixel read is effectively instant.
+  // Errors bypass the delay and surface immediately.
+  const revealWhenReady = useCallback((result: ChartInsights) => {
+    const elapsed = Date.now() - scanStartedAtRef.current;
+    const remaining = Math.max(0, scanTargetMsRef.current - elapsed);
+    if (scanRevealTimerRef.current) {
+      clearTimeout(scanRevealTimerRef.current);
+    }
+    scanRevealTimerRef.current = setTimeout(() => {
+      scanRevealTimerRef.current = null;
+      commitInsights(result);
+      setScanLoading(false);
+    }, remaining);
+  }, [commitInsights]);
+
   const handleScanChart = useCallback(async () => {
     if (!pickedImage) return;
+    // Pick a random hold time in [10_000, 20_000] ms. Analysis kicks off
+    // immediately but the reveal is gated on this window.
+    const targetMs = 10000 + Math.floor(Math.random() * 10001);
+    scanTargetMsRef.current = targetMs;
+    scanStartedAtRef.current = Date.now();
+    // Cancel any lingering reveal from a previous scan.
+    if (scanRevealTimerRef.current) {
+      clearTimeout(scanRevealTimerRef.current);
+      scanRevealTimerRef.current = null;
+    }
     setScanLoading(true);
     setScanError(null);
     setInsights(null);
@@ -154,8 +194,7 @@ export default function HomeScreen() {
       if (Platform.OS === 'web') {
         // Direct canvas analysis — no network call, no AI.
         const result = await analyzeOnWeb(pickedImage.uri);
-        await commitInsights(result);
-        setScanLoading(false);
+        revealWhenReady(result);
       } else {
         // Native: feed the image into a hidden WebView analyzer.
         const base64 = pickedImage.base64;
@@ -165,7 +204,7 @@ export default function HomeScreen() {
         const mime = pickedImage.mimeType || 'image/jpeg';
         const dataUri = `data:${mime};base64,${base64}`;
         setAnalyzerDataUri(dataUri);
-        // scanLoading stays true until onAnalyzerMessage fires.
+        // scanLoading stays true until onAnalyzerMessage fires → revealWhenReady.
       }
     } catch (e: any) {
       console.error('Scan chart error:', e);
@@ -173,7 +212,7 @@ export default function HomeScreen() {
       setScanLoading(false);
       setScanPhase(-1);
     }
-  }, [pickedImage, commitInsights]);
+  }, [pickedImage, revealWhenReady]);
 
   const onAnalyzerMessage = useCallback((event: any) => {
     try {
@@ -186,23 +225,30 @@ export default function HomeScreen() {
         );
       }
       const result = buildInsights(payload);
-      commitInsights(result);
+      revealWhenReady(result);
     } catch (e: any) {
       console.error('Analyzer message error:', e);
       setScanError(e?.message || 'Analyzer failed. Please try again.');
+      setScanLoading(false);
+      setScanPhase(-1);
     } finally {
       setAnalyzerDataUri(null);
-      setScanLoading(false);
     }
-  }, [commitInsights]);
+  }, [revealWhenReady]);
 
-  // Advance scan phases while loading — purely visual, 480ms per step, caps at 3
-  // so the last phase stays highlighted until the real result arrives.
+  // Advance scan phases while loading — purely visual, caps at 3 so the last
+  // phase stays highlighted until the real result arrives. The per-phase
+  // interval is derived from the target hold window so all four phases
+  // progress across the full 10–20s delay (roughly one phase per third of
+  // the window, with a small buffer so "BUILDING SIGNAL" sits briefly before
+  // the reveal rather than racing past it).
   useEffect(() => {
     if (!scanLoading) return;
+    const target = scanTargetMsRef.current || 2000;
+    const interval = Math.max(700, Math.floor((target - 800) / 3));
     const id = setInterval(() => {
       setScanPhase(p => (p < 3 ? p + 1 : p));
-    }, 480);
+    }, interval);
     return () => clearInterval(id);
   }, [scanLoading]);
 
