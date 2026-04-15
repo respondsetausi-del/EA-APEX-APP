@@ -201,11 +201,14 @@ class ApiService {
   // column the PHP admin writes, so it silently returned zero symbols and the
   // quotes screen fell into its mock-data fallback. Calling the PHP endpoint
   // directly keeps iOS and Android in lock-step.
+  // Calls the RN-side proxy at /api/symbols, which forwards to the PHP
+  // endpoint at ea-converter.com/admin/api/symbols/ (the same endpoint
+  // Android's RoboTraderAPI.getSymbols hits). Going through the proxy is
+  // required for the web build — direct calls to the PHP host are blocked
+  // by CORS from the browser. See services/ea-converter-proxy.ts.
   async getSymbols(phoneSecret: string): Promise<SymbolsResponse> {
     if (!phoneSecret) return { message: 'error' };
-    // Trailing slash before the query matches Android's Retrofit call exactly
-    // (baseUrl `admin/api/` + @GET("symbols/")) — PHP mod_rewrite is picky.
-    const url = `https://ea-converter.com/admin/api/symbols/?phone_secret=${encodeURIComponent(phoneSecret)}`;
+    const url = `${BASE_URL}/api/symbols?phone_secret=${encodeURIComponent(phoneSecret)}`;
     let res: Response;
     try {
       res = await fetch(url, {
@@ -216,13 +219,11 @@ class ApiService {
       console.error('[getSymbols] network error:', networkError);
       return { message: 'error' };
     }
-    console.log(`[getSymbols] ${res.status} ${url}`);
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '<unreadable>');
       console.error(`[getSymbols] HTTP ${res.status} body:`, bodyText.slice(0, 500));
       return { message: 'error' };
     }
-    // Read the body as text first so we can log it on parse / shape failures.
     let bodyText = '';
     try {
       bodyText = await res.text();

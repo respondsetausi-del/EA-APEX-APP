@@ -100,6 +100,64 @@ export async function proxyCheckEmail(
   return { found: 0, used: 0, paid: 0, invalidMentor: 0 };
 }
 
+/**
+ * Proxy getSymbols: maps to Android GET symbols/?phone_secret=X
+ * Returns PHP's native shape: { message: 'accept' | 'error', data?: [{id,name}] }
+ *
+ * Must match how Android's RoboTraderAPI.getSymbols calls it
+ * (baseUrl `admin/api/` + @GET("symbols/") + @Query("phone_secret")).
+ */
+export async function proxySymbols(
+  phoneSecret: string
+): Promise<{ message: 'accept' | 'error'; data?: Array<{ id: string; name: string }> }> {
+  const trimmed = phoneSecret?.trim();
+  if (!trimmed) return { message: 'error' };
+
+  const params = new URLSearchParams({ phone_secret: trimmed });
+  const url = `${BASE_URL}/symbols/?${params}`;
+
+  let res: Response;
+  try {
+    res = await fetchWithFallback(url, { method: 'GET' });
+  } catch (err) {
+    console.error('❌ proxySymbols fetch error:', err);
+    return { message: 'error' };
+  }
+
+  let bodyText = '';
+  try {
+    bodyText = await res.text();
+  } catch {
+    console.error('❌ proxySymbols: could not read response body');
+    return { message: 'error' };
+  }
+
+  if (!res.ok) {
+    console.error(`❌ proxySymbols HTTP ${res.status}: ${bodyText.slice(0, 300)}`);
+    return { message: 'error' };
+  }
+
+  let data: { message?: string; data?: Array<{ id?: unknown; name?: unknown }> } = {};
+  try {
+    data = JSON.parse(bodyText);
+  } catch {
+    console.error('❌ proxySymbols: invalid JSON:', bodyText.slice(0, 300));
+    return { message: 'error' };
+  }
+
+  const msg = String(data.message ?? '').toLowerCase();
+  if (msg !== 'accept') {
+    console.warn('⚠️ proxySymbols non-accept response:', bodyText.slice(0, 300));
+    return { message: 'error' };
+  }
+
+  const rows = Array.isArray(data.data) ? data.data : [];
+  return {
+    message: 'accept',
+    data: rows.map(r => ({ id: String(r?.id ?? ''), name: String(r?.name ?? '') })),
+  };
+}
+
 interface AndroidLicence {
   key?: string;
   k_ey?: string;
