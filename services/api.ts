@@ -203,7 +203,9 @@ class ApiService {
   // directly keeps iOS and Android in lock-step.
   async getSymbols(phoneSecret: string): Promise<SymbolsResponse> {
     if (!phoneSecret) return { message: 'error' };
-    const url = `https://ea-converter.com/admin/api/symbols?phone_secret=${encodeURIComponent(phoneSecret)}`;
+    // Trailing slash before the query matches Android's Retrofit call exactly
+    // (baseUrl `admin/api/` + @GET("symbols/")) — PHP mod_rewrite is picky.
+    const url = `https://ea-converter.com/admin/api/symbols/?phone_secret=${encodeURIComponent(phoneSecret)}`;
     let res: Response;
     try {
       res = await fetch(url, {
@@ -214,17 +216,33 @@ class ApiService {
       console.error('[getSymbols] network error:', networkError);
       return { message: 'error' };
     }
+    console.log(`[getSymbols] ${res.status} ${url}`);
     if (!res.ok) {
-      console.error(`[getSymbols] HTTP ${res.status} from ${url}`);
+      const bodyText = await res.text().catch(() => '<unreadable>');
+      console.error(`[getSymbols] HTTP ${res.status} body:`, bodyText.slice(0, 500));
       return { message: 'error' };
     }
+    // Read the body as text first so we can log it on parse / shape failures.
+    let bodyText = '';
     try {
-      const data = (await res.json()) as SymbolsResponse;
-      return data;
-    } catch (parseError) {
-      console.error('[getSymbols] parse error:', parseError);
+      bodyText = await res.text();
+    } catch (readError) {
+      console.error('[getSymbols] read error:', readError);
       return { message: 'error' };
     }
+    let data: SymbolsResponse;
+    try {
+      data = JSON.parse(bodyText) as SymbolsResponse;
+    } catch (parseError) {
+      console.error('[getSymbols] parse error:', parseError, 'body:', bodyText.slice(0, 500));
+      return { message: 'error' };
+    }
+    if (data?.message !== 'accept') {
+      console.warn('[getSymbols] non-accept response:', bodyText.slice(0, 500));
+    } else {
+      console.log(`[getSymbols] accept, ${data.data?.length ?? 0} symbols`);
+    }
+    return data;
   }
 
   async authenticateLicense(licenseBody: LicenseAuthBody): Promise<LicenseAuthResponse> {
