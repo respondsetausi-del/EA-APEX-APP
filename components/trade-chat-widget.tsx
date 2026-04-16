@@ -11,7 +11,7 @@ import {
   Modal,
   Animated,
 } from 'react-native';
-import { MessageCircle, Send, X, Mic } from 'lucide-react-native';
+import { MessageCircle, Send, X, Mic, MicOff } from 'lucide-react-native';
 import {
   parseCommand,
   promptForField,
@@ -52,7 +52,7 @@ const GREETING: ChatMessage = {
   id: 'greeting',
   author: 'bot',
   kind: 'text',
-  text: 'Hi — I\'m your trade assistant. Try: "buy gold 0.01" or "sell EURUSD 3 trades". Say "help" for more examples. (Phase 2: dry run — no trades placed yet.)',
+  text: 'Hi — I\'m your trade assistant. Tap the mic or type: "buy gold 0.01" or "sell EURUSD 3 trades". Say "help" for examples.',
   timestamp: 0,
 };
 
@@ -70,8 +70,37 @@ export function TradeChatWidget({
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
   const [input, setInput] = useState('');
   const [convo, setConvo] = useState<ConvoState>({ phase: 'idle' });
+  const [isListening, setIsListening] = useState(false);
+  const [interim, setInterim] = useState('');
+  const [voiceSupported, setVoiceSupported] = useState(true);
+  const recognitionRef = useRef<any>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const pulse = useRef(new Animated.Value(1)).current;
+  const micPulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SR) setVoiceSupported(false);
+    } else {
+      setVoiceSupported(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isListening) {
+      micPulse.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(micPulse, { toValue: 1.18, duration: 500, useNativeDriver: true }),
+        Animated.timing(micPulse, { toValue: 1, duration: 500, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [isListening, micPulse]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -172,10 +201,9 @@ export function TradeChatWidget({
     [appendBot, resolveCard]
   );
 
-  const handleSend = useCallback(() => {
-    const text = input.trim();
+  const processText = useCallback((raw: string) => {
+    const text = raw.trim();
     if (!text) return;
-    setInput('');
     appendUser(text);
 
     const prior = convo.phase === 'idle' ? {} : convo.order;
@@ -234,7 +262,106 @@ export function TradeChatWidget({
 
     const cardId = appendConfirmCard(merged);
     setConvo({ phase: 'confirming', order: merged, cardId });
-  }, [input, convo, appendBot, appendUser, appendConfirmCard, onConfirm, resolveCard]);
+  }, [convo, appendBot, appendUser, appendConfirmCard, onConfirm, resolveCard]);
+
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+    setInput('');
+    processText(text);
+  }, [input, processText]);
+
+  const stopListening = useCallback(() => {
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+    setIsListening(false);
+    setInterim('');
+  }, []);
+
+  const startListening = useCallback(() => {
+    if (Platform.OS !== 'web') {
+      appendBot('Voice input is web-only for now. Please type your command.');
+      return;
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      appendBot('Voice input isn\'t supported in this browser. Please type your command.');
+      setVoiceSupported(false);
+      return;
+    }
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+
+    const r = new SR();
+    r.lang = 'en-US';
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+    r.continuous = false;
+
+    r.onstart = () => {
+      setIsListening(true);
+      setInterim('');
+    };
+
+    r.onresult = (event: any) => {
+      const res = event.results[event.results.length - 1];
+      const transcript = res[0].transcript as string;
+      if (res.isFinal) {
+        setIsListening(false);
+        setInterim('');
+        processText(transcript);
+      } else {
+        setInterim(transcript);
+      }
+    };
+
+    r.onerror = (event: any) => {
+      setIsListening(false);
+      setInterim('');
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        appendBot('🎤 Microphone access denied. Type instead.');
+      } else if (event.error === 'no-speech') {
+        appendBot('🎤 Didn\'t catch anything. Tap the mic and try again.');
+      } else if (event.error !== 'aborted') {
+        appendBot(`🎤 Voice error: ${event.error}. Type instead.`);
+      }
+    };
+
+    r.onend = () => {
+      setIsListening(false);
+      setInterim('');
+    };
+
+    recognitionRef.current = r;
+    try {
+      r.start();
+    } catch (err) {
+      setIsListening(false);
+      appendBot('🎤 Could not start voice input. Type instead.');
+    }
+  }, [appendBot, processText]);
+
+  const toggleMic = useCallback(() => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  }, [isListening, startListening, stopListening]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen && isListening) stopListening();
+  }, [isOpen, isListening, stopListening]);
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {
@@ -339,35 +466,57 @@ export function TradeChatWidget({
               />
 
               <View style={[styles.inputBar, { borderTopColor: glowColor + '33' }]}>
-                <TouchableOpacity
-                  style={[styles.micBtn, { borderColor: glowColor + '55' }]}
-                  disabled
-                  testID="trade-chat-mic-placeholder"
-                >
-                  <Mic color={glowColor + '66'} size={18} />
-                </TouchableOpacity>
+                <Animated.View style={{ transform: [{ scale: micPulse }] }}>
+                  <TouchableOpacity
+                    onPress={toggleMic}
+                    disabled={!voiceSupported && Platform.OS !== 'web'}
+                    style={[
+                      styles.micBtn,
+                      {
+                        borderColor: isListening ? glowColor : glowColor + '55',
+                        backgroundColor: isListening ? glowColor + '33' : '#15192A',
+                      },
+                      isListening &&
+                        Platform.OS === 'web' &&
+                        ({ boxShadow: `0 0 12px 2px ${glowColor}AA` } as any),
+                    ]}
+                    testID="trade-chat-mic"
+                  >
+                    {isListening ? (
+                      <MicOff color={glowColor} size={18} />
+                    ) : (
+                      <Mic color={voiceSupported ? glowColor : glowColor + '55'} size={18} />
+                    )}
+                  </TouchableOpacity>
+                </Animated.View>
                 <TextInput
-                  value={input}
+                  value={isListening ? interim : input}
                   onChangeText={setInput}
+                  editable={!isListening}
                   placeholder={
-                    convo.phase === 'asking'
+                    isListening
+                      ? 'Listening…'
+                      : convo.phase === 'asking'
                       ? promptForField(convo.awaiting)
                       : 'Type a command…'
                   }
-                  placeholderTextColor="#6B7280"
-                  style={styles.input}
+                  placeholderTextColor={isListening ? glowColor + 'AA' : '#6B7280'}
+                  style={[
+                    styles.input,
+                    isListening && { color: glowColor + 'CC', fontStyle: 'italic' },
+                  ]}
                   returnKeyType="send"
                   onSubmitEditing={handleSend}
                   testID="trade-chat-input"
                 />
                 <TouchableOpacity
                   onPress={handleSend}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() || isListening}
                   style={[
                     styles.sendBtn,
                     {
-                      backgroundColor: input.trim() ? glowColor : '#2A2F45',
-                      opacity: input.trim() ? 1 : 0.6,
+                      backgroundColor: input.trim() && !isListening ? glowColor : '#2A2F45',
+                      opacity: input.trim() && !isListening ? 1 : 0.6,
                     },
                   ]}
                   testID="trade-chat-send"
