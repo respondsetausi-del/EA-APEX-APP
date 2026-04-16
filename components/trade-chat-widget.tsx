@@ -12,24 +12,46 @@ import {
   Animated,
 } from 'react-native';
 import { MessageCircle, Send, X, Mic } from 'lucide-react-native';
+import {
+  parseCommand,
+  promptForField,
+  describeOrder,
+  hasAllRequired,
+  computeMissing,
+  HELP_TEXT,
+  type ParsedOrder,
+  type MissingField,
+} from '@/utils/trade-command-parser';
 
 export type ChatAuthor = 'user' | 'bot';
+export type ChatMessageKind = 'text' | 'confirm-card';
 
 export interface ChatMessage {
   id: string;
   author: ChatAuthor;
-  text: string;
+  kind: ChatMessageKind;
+  text?: string;
+  order?: ParsedOrder;
   timestamp: number;
+  resolved?: 'confirmed' | 'cancelled';
 }
 
 interface TradeChatWidgetProps {
   glowColor: string;
+  defaultLot?: number;
+  defaultCount?: number;
 }
+
+type ConvoState =
+  | { phase: 'idle' }
+  | { phase: 'asking'; order: ParsedOrder; awaiting: MissingField }
+  | { phase: 'confirming'; order: ParsedOrder; cardId: string };
 
 const GREETING: ChatMessage = {
   id: 'greeting',
   author: 'bot',
-  text: 'Hi — I\'m your trade assistant. Try: "buy gold 0.01" or "sell EURUSD 3 trades". (Phase 1: echo only — no trades are placed yet.)',
+  kind: 'text',
+  text: 'Hi — I\'m your trade assistant. Try: "buy gold 0.01" or "sell EURUSD 3 trades". Say "help" for more examples. (Phase 2: dry run — no trades placed yet.)',
   timestamp: 0,
 };
 
@@ -37,10 +59,15 @@ function genId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function TradeChatWidget({ glowColor }: TradeChatWidgetProps) {
+export function TradeChatWidget({
+  glowColor,
+  defaultLot = 0.01,
+  defaultCount = 1,
+}: TradeChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
   const [input, setInput] = useState('');
+  const [convo, setConvo] = useState<ConvoState>({ phase: 'idle' });
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const pulse = useRef(new Animated.Value(1)).current;
 
@@ -59,23 +86,142 @@ export function TradeChatWidget({ glowColor }: TradeChatWidgetProps) {
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
   }, []);
 
+  const appendBot = useCallback(
+    (text: string) => {
+      setMessages(prev => [
+        ...prev,
+        { id: genId(), author: 'bot', kind: 'text', text, timestamp: Date.now() },
+      ]);
+      scrollToEnd();
+    },
+    [scrollToEnd]
+  );
+
+  const appendUser = useCallback(
+    (text: string) => {
+      setMessages(prev => [
+        ...prev,
+        { id: genId(), author: 'user', kind: 'text', text, timestamp: Date.now() },
+      ]);
+      scrollToEnd();
+    },
+    [scrollToEnd]
+  );
+
+  const appendConfirmCard = useCallback(
+    (order: ParsedOrder): string => {
+      const id = genId();
+      setMessages(prev => [
+        ...prev,
+        { id, author: 'bot', kind: 'confirm-card', order, timestamp: Date.now() },
+      ]);
+      scrollToEnd();
+      return id;
+    },
+    [scrollToEnd]
+  );
+
+  const resolveCard = useCallback((cardId: string, outcome: 'confirmed' | 'cancelled') => {
+    setMessages(prev => prev.map(m => (m.id === cardId ? { ...m, resolved: outcome } : m)));
+  }, []);
+
+  const onConfirm = useCallback(
+    (order: ParsedOrder, cardId: string) => {
+      resolveCard(cardId, 'confirmed');
+      const summary = describeOrder(order, { lot: defaultLot, count: defaultCount });
+      appendBot(`✅ Confirmed (dry run): ${summary}\nTrade execution lands in Phase 3.`);
+      setConvo({ phase: 'idle' });
+    },
+    [appendBot, defaultCount, defaultLot, resolveCard]
+  );
+
+  const onCancel = useCallback(
+    (cardId: string) => {
+      resolveCard(cardId, 'cancelled');
+      appendBot('Order cancelled.');
+      setConvo({ phase: 'idle' });
+    },
+    [appendBot, resolveCard]
+  );
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
-    const userMsg: ChatMessage = { id: genId(), author: 'user', text, timestamp: Date.now() };
-    const botMsg: ChatMessage = {
-      id: genId(),
-      author: 'bot',
-      text: `Got it: "${text}". Parsing & trading come in Phase 2/3.`,
-      timestamp: Date.now() + 1,
-    };
-    setMessages(prev => [...prev, userMsg, botMsg]);
     setInput('');
-    scrollToEnd();
-  }, [input, scrollToEnd]);
+    appendUser(text);
+
+    const prior = convo.phase === 'idle' ? {} : convo.order;
+    const awaiting = convo.phase === 'asking' ? convo.awaiting : undefined;
+    const result = parseCommand(text, { prior, awaitingField: awaiting });
+
+    if (result.kind === 'help') {
+      appendBot(HELP_TEXT);
+      return;
+    }
+
+    if (result.kind === 'cancel') {
+      if (convo.phase === 'confirming') resolveCard(convo.cardId, 'cancelled');
+      appendBot('Cancelled.');
+      setConvo({ phase: 'idle' });
+      return;
+    }
+
+    if (result.kind === 'confirm') {
+      if (convo.phase === 'confirming' && hasAllRequired(convo.order)) {
+        onConfirm(convo.order, convo.cardId);
+      } else if (hasAllRequired(result.order)) {
+        const cardId = appendConfirmCard(result.order);
+        setConvo({ phase: 'confirming', order: result.order, cardId });
+      } else {
+        appendBot('Nothing to confirm yet.');
+      }
+      return;
+    }
+
+    if (result.kind === 'unknown') {
+      if (result.unknownSymbol) {
+        appendBot(
+          `"${result.unknownSymbol}" isn't a symbol I know. Try gold, EURUSD, BTCUSD, US100, etc.`
+        );
+      } else {
+        appendBot("Didn't catch that. Try \"buy gold\" or type \"help\".");
+      }
+      return;
+    }
+
+    const merged = result.order;
+    const missing = computeMissing(merged);
+    if (missing.length > 0) {
+      const next = missing[0];
+      if (result.unknownSymbol && next === 'symbol') {
+        appendBot(
+          `"${result.unknownSymbol}" isn't a symbol I know. ${promptForField(next)}`
+        );
+      } else {
+        appendBot(promptForField(next));
+      }
+      setConvo({ phase: 'asking', order: merged, awaiting: next });
+      return;
+    }
+
+    const cardId = appendConfirmCard(merged);
+    setConvo({ phase: 'confirming', order: merged, cardId });
+  }, [input, convo, appendBot, appendUser, appendConfirmCard, onConfirm, resolveCard]);
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {
+      if (item.kind === 'confirm-card' && item.order) {
+        return (
+          <ConfirmCard
+            message={item}
+            glowColor={glowColor}
+            defaultLot={defaultLot}
+            defaultCount={defaultCount}
+            onConfirm={() => onConfirm(item.order!, item.id)}
+            onCancel={() => onCancel(item.id)}
+          />
+        );
+      }
       const isUser = item.author === 'user';
       return (
         <View style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowBot]}>
@@ -92,7 +238,7 @@ export function TradeChatWidget({ glowColor }: TradeChatWidgetProps) {
         </View>
       );
     },
-    [glowColor]
+    [glowColor, defaultCount, defaultLot, onConfirm, onCancel]
   );
 
   return (
@@ -175,7 +321,11 @@ export function TradeChatWidget({ glowColor }: TradeChatWidgetProps) {
                 <TextInput
                   value={input}
                   onChangeText={setInput}
-                  placeholder="Type a command…"
+                  placeholder={
+                    convo.phase === 'asking'
+                      ? promptForField(convo.awaiting)
+                      : 'Type a command…'
+                  }
                   placeholderTextColor="#6B7280"
                   style={styles.input}
                   returnKeyType="send"
@@ -202,6 +352,103 @@ export function TradeChatWidget({ glowColor }: TradeChatWidgetProps) {
         </View>
       </Modal>
     </>
+  );
+}
+
+interface ConfirmCardProps {
+  message: ChatMessage;
+  glowColor: string;
+  defaultLot: number;
+  defaultCount: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmCard({ message, glowColor, defaultLot, defaultCount, onConfirm, onCancel }: ConfirmCardProps) {
+  const order = message.order!;
+  const count = order.count ?? defaultCount;
+  const lot = order.lot ?? defaultLot;
+  const resolved = message.resolved;
+  const sl =
+    order.slPips !== undefined
+      ? `${order.slPips} pips`
+      : order.slPrice !== undefined
+      ? `@${order.slPrice}`
+      : '—';
+  const tp =
+    order.tpPips !== undefined
+      ? `${order.tpPips} pips`
+      : order.tpPrice !== undefined
+      ? `@${order.tpPrice}`
+      : '—';
+
+  return (
+    <View style={styles.msgRowBot}>
+      <View
+        style={[
+          styles.card,
+          {
+            borderColor: resolved ? '#2A2F45' : glowColor + '88',
+            shadowColor: glowColor,
+          },
+          Platform.OS === 'web' &&
+            !resolved &&
+            ({ boxShadow: `0 0 12px 1px ${glowColor}44` } as any),
+        ]}
+      >
+        <Text style={[styles.cardTitle, { color: glowColor }]}>CONFIRM ORDER</Text>
+        <View style={styles.cardRow}>
+          <Text style={[styles.cardAction, { color: order.action === 'SELL' ? '#F87171' : '#4ADE80' }]}>
+            {order.action}
+          </Text>
+          <Text style={styles.cardSymbol}>{order.symbol}</Text>
+          <Text style={styles.cardCount}>
+            × {count}
+          </Text>
+        </View>
+        <View style={styles.cardGrid}>
+          <CardField label="Lot" value={String(lot)} />
+          <CardField label="SL" value={sl} />
+          <CardField label="TP" value={tp} />
+        </View>
+        {resolved ? (
+          <Text
+            style={[
+              styles.cardResolved,
+              { color: resolved === 'confirmed' ? '#4ADE80' : '#9CA3AF' },
+            ]}
+          >
+            {resolved === 'confirmed' ? '✓ Confirmed' : '✕ Cancelled'}
+          </Text>
+        ) : (
+          <View style={styles.cardActions}>
+            <TouchableOpacity
+              style={[styles.cardBtn, styles.cardBtnCancel]}
+              onPress={onCancel}
+              testID="trade-chat-card-cancel"
+            >
+              <Text style={styles.cardBtnCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.cardBtn, { backgroundColor: glowColor }]}
+              onPress={onConfirm}
+              testID="trade-chat-card-confirm"
+            >
+              <Text style={styles.cardBtnConfirmText}>Confirm</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function CardField({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.cardField}>
+      <Text style={styles.cardFieldLabel}>{label}</Text>
+      <Text style={styles.cardFieldValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -332,6 +579,100 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  card: {
+    width: '92%',
+    backgroundColor: '#0F1424',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    gap: 10,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  cardTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
+  cardRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 10,
+  },
+  cardAction: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  cardSymbol: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  cardCount: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  cardGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  cardField: {
+    flex: 1,
+    backgroundColor: '#15192A',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  cardFieldLabel: {
+    color: '#6B7280',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  cardFieldValue: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  cardBtn: {
+    flex: 1,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardBtnCancel: {
+    backgroundColor: '#1F2333',
+    borderWidth: 1,
+    borderColor: '#2A2F45',
+  },
+  cardBtnCancelText: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  cardBtnConfirmText: {
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  cardResolved: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 2,
   },
 });
 
