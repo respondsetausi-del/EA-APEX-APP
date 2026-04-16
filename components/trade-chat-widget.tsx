@@ -12,6 +12,7 @@ import {
   Animated,
 } from 'react-native';
 import { MessageCircle, Send, X, Mic, MicOff } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   parseCommand,
   promptForField,
@@ -23,6 +24,9 @@ import {
   type MissingField,
 } from '@/utils/trade-command-parser';
 import { useApp } from '@/providers/app-provider';
+
+const HISTORY_KEY = '@trade_chat_history_v1';
+const HISTORY_CAP = 50;
 
 export type ChatAuthor = 'user' | 'bot';
 export type ChatMessageKind = 'text' | 'confirm-card';
@@ -49,6 +53,7 @@ const TRADE_COOLDOWN_MS = 3000;
 type ConvoState =
   | { phase: 'idle' }
   | { phase: 'asking'; order: ParsedOrder; awaiting: MissingField }
+  | { phase: 'disambiguating'; order: ParsedOrder; candidates: string[] }
   | { phase: 'confirming'; order: ParsedOrder; cardId: string };
 
 const GREETING: ChatMessage = {
@@ -71,6 +76,7 @@ export function TradeChatWidget({
   const { placeManualTrade } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
+  const [historyHydrated, setHistoryHydrated] = useState(false);
   const [input, setInput] = useState('');
   const [convo, setConvo] = useState<ConvoState>({ phase: 'idle' });
   const [isListening, setIsListening] = useState(false);
@@ -78,6 +84,8 @@ export function TradeChatWidget({
   const [voiceSupported, setVoiceSupported] = useState(true);
   const recognitionRef = useRef<any>(null);
   const lastTradeAtRef = useRef<number>(0);
+  const lastInputViaVoiceRef = useRef<boolean>(false);
+  const relistenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const pulse = useRef(new Animated.Value(1)).current;
   const micPulse = useRef(new Animated.Value(1)).current;
@@ -105,6 +113,33 @@ export function TradeChatWidget({
     loop.start();
     return () => loop.stop();
   }, [isListening, micPulse]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(HISTORY_KEY);
+        if (!cancelled && raw) {
+          const parsed = JSON.parse(raw) as ChatMessage[];
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // Stale unresolved cards from a prior session shouldn't be actionable
+            const hydrated = parsed.map(m =>
+              m.kind === 'confirm-card' && !m.resolved ? { ...m, resolved: 'cancelled' as const } : m
+            );
+            setMessages(hydrated);
+          }
+        }
+      } catch {}
+      if (!cancelled) setHistoryHydrated(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!historyHydrated) return;
+    const trimmed = messages.slice(-HISTORY_CAP);
+    AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed)).catch(() => {});
+  }, [messages, historyHydrated]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -212,10 +247,39 @@ export function TradeChatWidget({
     [appendBot, resolveCard]
   );
 
-  const processText = useCallback((raw: string) => {
+  const processText = useCallback((raw: string, opts?: { fromVoice?: boolean }) => {
     const text = raw.trim();
     if (!text) return;
+    lastInputViaVoiceRef.current = !!opts?.fromVoice;
     appendUser(text);
+
+    if (convo.phase === 'disambiguating') {
+      if (/^\s*cancel\s*\.?$/i.test(text)) {
+        appendBot('Cancelled.');
+        setConvo({ phase: 'idle' });
+        return;
+      }
+      const digit = text.match(/^\s*([1-9])\s*$/);
+      const idx = digit ? parseInt(digit[1], 10) - 1 : -1;
+      if (idx >= 0 && idx < convo.candidates.length) {
+        const chosen = convo.candidates[idx];
+        const merged: ParsedOrder = { ...convo.order, symbol: chosen };
+        const missing = computeMissing(merged);
+        if (missing.length > 0) {
+          const next = missing[0];
+          appendBot(promptForField(next));
+          setConvo({ phase: 'asking', order: merged, awaiting: next });
+        } else {
+          const cardId = appendConfirmCard(merged);
+          setConvo({ phase: 'confirming', order: merged, cardId });
+        }
+        return;
+      }
+      appendBot(
+        `Reply with 1-${convo.candidates.length} to pick, or "cancel" to start over.`
+      );
+      return;
+    }
 
     const prior = convo.phase === 'idle' ? {} : convo.order;
     const awaiting = convo.phase === 'asking' ? convo.awaiting : undefined;
@@ -256,6 +320,17 @@ export function TradeChatWidget({
       return;
     }
 
+    if (result.kind === 'ambiguous' && result.candidates && result.candidates.length > 0) {
+      const lines = [
+        `"${result.ambiguousToken}" — which pair?`,
+        ...result.candidates.map((c, i) => `  ${i + 1}. ${c}`),
+        'Reply with a number.',
+      ];
+      appendBot(lines.join('\n'));
+      setConvo({ phase: 'disambiguating', order: result.order, candidates: result.candidates });
+      return;
+    }
+
     const merged = result.order;
     const missing = computeMissing(merged);
     if (missing.length > 0) {
@@ -279,7 +354,7 @@ export function TradeChatWidget({
     const text = input.trim();
     if (!text) return;
     setInput('');
-    processText(text);
+    processText(text, { fromVoice: false });
   }, [input, processText]);
 
   const stopListening = useCallback(() => {
@@ -322,7 +397,7 @@ export function TradeChatWidget({
       if (res.isFinal) {
         setIsListening(false);
         setInterim('');
-        processText(transcript);
+        processText(transcript, { fromVoice: true });
       } else {
         setInterim(transcript);
       }
@@ -367,12 +442,27 @@ export function TradeChatWidget({
       try {
         recognitionRef.current?.stop();
       } catch {}
+      if (relistenTimerRef.current) clearTimeout(relistenTimerRef.current);
     };
   }, []);
 
   useEffect(() => {
     if (!isOpen && isListening) stopListening();
   }, [isOpen, isListening, stopListening]);
+
+  useEffect(() => {
+    if (!lastInputViaVoiceRef.current) return;
+    if (!isOpen) return;
+    if (isListening) return;
+    if (convo.phase !== 'confirming' && convo.phase !== 'disambiguating' && convo.phase !== 'asking') return;
+    if (relistenTimerRef.current) clearTimeout(relistenTimerRef.current);
+    relistenTimerRef.current = setTimeout(() => {
+      if (lastInputViaVoiceRef.current && isOpen) startListening();
+    }, 800);
+    return () => {
+      if (relistenTimerRef.current) clearTimeout(relistenTimerRef.current);
+    };
+  }, [convo.phase, isListening, isOpen, startListening]);
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {
@@ -509,6 +599,8 @@ export function TradeChatWidget({
                       ? 'Listening…'
                       : convo.phase === 'asking'
                       ? promptForField(convo.awaiting)
+                      : convo.phase === 'disambiguating'
+                      ? `Reply 1-${convo.candidates.length}…`
                       : 'Type a command…'
                   }
                   placeholderTextColor={isListening ? glowColor + 'AA' : '#6B7280'}

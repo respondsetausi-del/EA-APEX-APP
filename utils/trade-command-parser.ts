@@ -24,13 +24,18 @@ export type ParseResultKind =
   | 'cancel'
   | 'confirm'
   | 'help'
-  | 'unknown';
+  | 'unknown'
+  | 'ambiguous';
 
 export interface ParseResult {
   kind: ParseResultKind;
   order: ParsedOrder;
   missing: MissingField[];
   unknownSymbol?: string;
+  /** Candidate symbols when the user gave a bare currency code like "EUR". */
+  candidates?: string[];
+  /** Currency code that triggered disambiguation. */
+  ambiguousToken?: string;
 }
 
 export type MissingField = 'action' | 'symbol';
@@ -111,6 +116,17 @@ const CURRENCY_CODES = new Set<string>([
   'MXN', 'CNY', 'CNH', 'HUF', 'CZK', 'RUB', 'INR', 'KRW',
 ]);
 
+const DISAMBIGUATION: Record<string, string[]> = {
+  EUR: ['EURUSD', 'EURJPY', 'EURGBP'],
+  GBP: ['GBPUSD', 'GBPJPY', 'GBPAUD'],
+  USD: ['USDJPY', 'USDCHF', 'USDCAD'],
+  JPY: ['USDJPY', 'EURJPY', 'GBPJPY'],
+  CHF: ['USDCHF', 'EURCHF', 'GBPCHF'],
+  AUD: ['AUDUSD', 'AUDJPY', 'AUDNZD'],
+  NZD: ['NZDUSD', 'NZDJPY', 'AUDNZD'],
+  CAD: ['USDCAD', 'CADJPY', 'EURCAD'],
+};
+
 function looksLikeCurrencyPair(upper: string): boolean {
   if (!/^[A-Z]{6}$/.test(upper)) return false;
   return CURRENCY_CODES.has(upper.slice(0, 3)) || CURRENCY_CODES.has(upper.slice(3, 6));
@@ -126,7 +142,7 @@ function normaliseSymbolToken(raw: string): string | null {
   return null;
 }
 
-function findSymbol(text: string): { symbol?: string; unknown?: string } {
+function findSymbol(text: string): { symbol?: string; unknown?: string; ambiguous?: string } {
   const lower = text.toLowerCase();
   for (const alias of Object.keys(SYMBOL_ALIASES)) {
     const rx = new RegExp(`\\b${alias}\\b`, 'i');
@@ -145,6 +161,11 @@ function findSymbol(text: string): { symbol?: string; unknown?: string } {
     const sym = idx[1].toUpperCase();
     if (KNOWN_SYMBOLS.has(sym)) return { symbol: sym };
     return { unknown: sym };
+  }
+  const threeLetter = text.matchAll(/\b([A-Za-z]{3})\b/g);
+  for (const m of threeLetter) {
+    const upper = m[1].toUpperCase();
+    if (DISAMBIGUATION[upper]) return { ambiguous: upper };
   }
   return {};
 }
@@ -197,13 +218,14 @@ function findTp(text: string): { tpPips?: number; tpPrice?: number } {
   return v < PIPS_THRESHOLD ? { tpPips: v } : { tpPrice: v };
 }
 
-function extractFragments(text: string): ParsedOrder & { unknownSymbol?: string } {
-  const out: ParsedOrder & { unknownSymbol?: string } = {};
+function extractFragments(text: string): ParsedOrder & { unknownSymbol?: string; ambiguousToken?: string } {
+  const out: ParsedOrder & { unknownSymbol?: string; ambiguousToken?: string } = {};
   const action = findAction(text);
   if (action) out.action = action;
   const sym = findSymbol(text);
   if (sym.symbol) out.symbol = sym.symbol;
   else if (sym.unknown) out.unknownSymbol = sym.unknown;
+  else if (sym.ambiguous) out.ambiguousToken = sym.ambiguous;
   const count = findCount(text);
   if (count !== undefined) out.count = count;
   const lot = findLot(text);
@@ -266,6 +288,17 @@ export function parseCommand(text: string, opts: ParseOptions = {}): ParseResult
   if (fragment.tpPrice !== undefined) merged.tpPrice = fragment.tpPrice;
 
   const missing = computeMissing(merged);
+
+  if (fragment.ambiguousToken && !merged.symbol) {
+    const candidates = DISAMBIGUATION[fragment.ambiguousToken] ?? [];
+    return {
+      kind: 'ambiguous',
+      order: merged,
+      missing,
+      ambiguousToken: fragment.ambiguousToken,
+      candidates,
+    };
+  }
 
   if (
     fragment.unknownSymbol &&
