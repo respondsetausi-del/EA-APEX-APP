@@ -16,6 +16,7 @@ import { RobotLogo } from '@/components/robot-logo';
 import { TradingPanel } from '@/components/trading-panel';
 import { VoiceCommandPill } from '@/components/voice-command';
 import { ScannerCard } from '@/components/scanner-card';
+import TradeChatWidget from '@/components/trade-chat-widget';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useApp } from '@/providers/app-provider';
@@ -1173,6 +1174,7 @@ export default function HomeScreen() {
           )}
         </SafeAreaView>
       </Modal>
+      <TradeChatWidget glowColor={glowColor} />
     </SafeAreaView>
   );
 }

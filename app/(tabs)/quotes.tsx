@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useApp } from '@/providers/app-provider';
 import { Symbol as ApiSymbol, apiService } from '@/services/api';
+import TradeChatWidget from '@/components/trade-chat-widget';
 
 interface Quote {
   symbol: string;
@@ -355,6 +356,7 @@ export default function QuotesScreen() {
           </ScrollView>
         )}
       </View>
+      <TradeChatWidget glowColor={glowColor} />
     </SafeAreaView>
   );
 }

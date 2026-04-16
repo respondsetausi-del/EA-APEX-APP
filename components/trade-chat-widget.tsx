@@ -43,6 +43,9 @@ interface TradeChatWidgetProps {
   defaultCount?: number;
 }
 
+const MAX_LOT_WARN = 1.0;
+const TRADE_COOLDOWN_MS = 3000;
+
 type ConvoState =
   | { phase: 'idle' }
   | { phase: 'asking'; order: ParsedOrder; awaiting: MissingField }
@@ -74,6 +77,7 @@ export function TradeChatWidget({
   const [interim, setInterim] = useState('');
   const [voiceSupported, setVoiceSupported] = useState(true);
   const recognitionRef = useRef<any>(null);
+  const lastTradeAtRef = useRef<number>(0);
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const pulse = useRef(new Animated.Value(1)).current;
   const micPulse = useRef(new Animated.Value(1)).current;
@@ -162,6 +166,13 @@ export function TradeChatWidget({
         appendBot('Missing action or symbol — cannot place trade.');
         return;
       }
+      const now = Date.now();
+      const waitMs = TRADE_COOLDOWN_MS - (now - lastTradeAtRef.current);
+      if (waitMs > 0) {
+        appendBot(`⏱ Slow down — wait ${Math.ceil(waitMs / 1000)}s before the next trade.`);
+        return;
+      }
+      lastTradeAtRef.current = now;
       resolveCard(cardId, 'confirmed');
       const summary = describeOrder(order, { lot: defaultLot, count: defaultCount });
 
@@ -583,6 +594,13 @@ function ConfirmCard({ message, glowColor, defaultLot, defaultCount, onConfirm, 
             × {count}
           </Text>
         </View>
+        {lot > MAX_LOT_WARN && !resolved && (
+          <View style={styles.cardWarn}>
+            <Text style={styles.cardWarnText}>
+              ⚠ Large lot size ({lot}) — exceeds {MAX_LOT_WARN}. Double-check before confirming.
+            </Text>
+          </View>
+        )}
         <View style={styles.cardGrid}>
           <CardField label="Lot" value={String(lot)} />
           <CardField label="SL" value={sl} />
@@ -818,6 +836,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginTop: 2,
+  },
+  cardWarn: {
+    backgroundColor: '#3B2710',
+    borderColor: '#F59E0B',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  cardWarnText: {
+    color: '#FBBF24',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   cardActions: {
     flexDirection: 'row',
