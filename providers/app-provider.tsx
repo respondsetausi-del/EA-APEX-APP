@@ -67,6 +67,22 @@ export interface MT5Symbol {
   activatedAt: Date;
 }
 
+export interface ManualTradeRequest {
+  symbol: string;
+  action: 'BUY' | 'SELL';
+  lot: number;
+  count: number;
+  platform: 'MT4' | 'MT5';
+  slPrice?: number;
+  tpPrice?: number;
+}
+
+export interface PlaceManualTradeResult {
+  ok: boolean;
+  error?: string;
+  platform?: 'MT4' | 'MT5';
+}
+
 interface AppState {
   user: User | null;
   eas: EA[];
@@ -87,6 +103,7 @@ interface AppState {
   newSignal: SignalLog | null;
   tradingSignal: SignalLog | null;
   showTradingWebView: boolean;
+  manualTradeRequest: ManualTradeRequest | null;
   databaseSignal: DatabaseSignal | null;
   isDatabaseSignalsPolling: boolean;
   glowColor: string;
@@ -125,6 +142,7 @@ interface AppState {
   dismissNewSignal: () => void;
   setTradingSignal: (signal: SignalLog | null) => void;
   setShowTradingWebView: (show: boolean) => void;
+  placeManualTrade: (req: Omit<ManualTradeRequest, 'platform'> & { platform?: 'MT4' | 'MT5' }) => PlaceManualTradeResult;
 }
 
 export const [AppProvider, useApp] = createContextHook<AppState>(() => {
@@ -144,6 +162,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [newSignal, setNewSignal] = useState<SignalLog | null>(null);
   const [tradingSignal, setTradingSignal] = useState<SignalLog | null>(null);
   const [showTradingWebView, setShowTradingWebView] = useState<boolean>(false);
+  const [manualTradeRequest, setManualTradeRequest] = useState<ManualTradeRequest | null>(null);
   const [databaseSignal, setDatabaseSignal] = useState<DatabaseSignal | null>(null);
   const [isDatabaseSignalsPolling, setIsDatabaseSignalsPolling] = useState<boolean>(false);
   const [glowColor, setGlowColorState] = useState<string>('#00BFFF');
@@ -994,8 +1013,63 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     if (!show) {
       // Clear trading signal when closing WebView
       setTradingSignal(null);
+      setManualTradeRequest(null);
     }
   }, []);
+
+  const placeManualTrade = useCallback((req: Omit<ManualTradeRequest, 'platform'> & { platform?: 'MT4' | 'MT5' }): PlaceManualTradeResult => {
+    const symbol = req.symbol.trim().toUpperCase();
+    if (!symbol) return { ok: false, error: 'Missing symbol.' };
+
+    const inMt4 = mt4Symbols.some(s => s.symbol.toUpperCase() === symbol);
+    const inMt5 = mt5Symbols.some(s => s.symbol.toUpperCase() === symbol);
+
+    if (!inMt4 && !inMt5) {
+      return {
+        ok: false,
+        error: `${symbol} isn't configured in Trade Config. Add it first, then try again.`,
+      };
+    }
+
+    let platform: 'MT4' | 'MT5';
+    if (req.platform) {
+      platform = req.platform;
+    } else if (inMt5 && mt5Account?.connected) {
+      platform = 'MT5';
+    } else if (inMt4 && mt4Account?.connected) {
+      platform = 'MT4';
+    } else if (inMt5) {
+      platform = 'MT5';
+    } else {
+      platform = 'MT4';
+    }
+
+    const manual: ManualTradeRequest = {
+      symbol,
+      action: req.action,
+      lot: req.lot,
+      count: req.count,
+      platform,
+      slPrice: req.slPrice,
+      tpPrice: req.tpPrice,
+    };
+
+    const synthetic: SignalLog = {
+      asset: symbol,
+      action: req.action,
+      price: '0',
+      tp: req.tpPrice !== undefined ? String(req.tpPrice) : '',
+      sl: req.slPrice !== undefined ? String(req.slPrice) : '',
+      time: new Date().toISOString(),
+      latestupdate: new Date().toISOString(),
+    };
+
+    setManualTradeRequest(manual);
+    setTradingSignal(synthetic);
+    setShowTradingWebView(true);
+
+    return { ok: true, platform };
+  }, [mt4Symbols, mt5Symbols, mt4Account, mt5Account]);
 
   // Initialize signals monitoring state on mount
   useEffect(() => {
@@ -1052,6 +1126,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     newSignal,
     tradingSignal,
     showTradingWebView,
+    manualTradeRequest,
     databaseSignal,
     isDatabaseSignalsPolling,
     glowColor,
@@ -1090,5 +1165,6 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     dismissNewSignal,
     setTradingSignal: setTradingSignalCallback,
     setShowTradingWebView: setShowTradingWebViewCallback,
-  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback]);
+    placeManualTrade,
+  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, manualTradeRequest, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback, placeManualTrade]);
 });

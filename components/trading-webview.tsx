@@ -32,7 +32,7 @@ interface TradeConfig {
 }
 
 export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps) {
-  const { activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, eas } = useApp();
+  const { activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, eas, manualTradeRequest } = useApp();
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [tradeExecuted, setTradeExecuted] = useState<boolean>(false);
@@ -47,6 +47,17 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     if (!signal) return null;
 
     const symbolName = signal.asset;
+
+    // Manual trade request (from voice/chat command) overrides saved config
+    if (manualTradeRequest && manualTradeRequest.symbol.toUpperCase() === symbolName.toUpperCase()) {
+      return {
+        symbol: manualTradeRequest.symbol,
+        lotSize: String(manualTradeRequest.lot),
+        platform: manualTradeRequest.platform,
+        direction: manualTradeRequest.action,
+        numberOfTrades: String(manualTradeRequest.count),
+      };
+    }
 
     // Check MT4 symbols first
     const mt4Config = mt4Symbols.find(s => s.symbol === symbolName);
@@ -85,7 +96,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     }
 
     return null;
-  }, [signal, activeSymbols, mt4Symbols, mt5Symbols]);
+  }, [signal, activeSymbols, mt4Symbols, mt5Symbols, manualTradeRequest]);
 
   const tradeConfig = getTradeConfig();
 

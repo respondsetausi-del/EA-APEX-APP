@@ -22,6 +22,7 @@ import {
   type ParsedOrder,
   type MissingField,
 } from '@/utils/trade-command-parser';
+import { useApp } from '@/providers/app-provider';
 
 export type ChatAuthor = 'user' | 'bot';
 export type ChatMessageKind = 'text' | 'confirm-card';
@@ -64,6 +65,7 @@ export function TradeChatWidget({
   defaultLot = 0.01,
   defaultCount = 1,
 }: TradeChatWidgetProps) {
+  const { placeManualTrade } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
   const [input, setInput] = useState('');
@@ -127,12 +129,38 @@ export function TradeChatWidget({
 
   const onConfirm = useCallback(
     (order: ParsedOrder, cardId: string) => {
+      if (!order.action || !order.symbol) {
+        appendBot('Missing action or symbol — cannot place trade.');
+        return;
+      }
       resolveCard(cardId, 'confirmed');
       const summary = describeOrder(order, { lot: defaultLot, count: defaultCount });
-      appendBot(`✅ Confirmed (dry run): ${summary}\nTrade execution lands in Phase 3.`);
+
+      const pipsDropped: string[] = [];
+      if (order.slPips !== undefined) pipsDropped.push('SL');
+      if (order.tpPips !== undefined) pipsDropped.push('TP');
+
+      const result = placeManualTrade({
+        symbol: order.symbol,
+        action: order.action,
+        lot: order.lot ?? defaultLot,
+        count: order.count ?? defaultCount,
+        slPrice: order.slPrice,
+        tpPrice: order.tpPrice,
+      });
+
+      if (!result.ok) {
+        appendBot(`⚠️ ${result.error ?? 'Could not place trade.'}`);
+      } else {
+        const lines = [`✅ Sent to ${result.platform}: ${summary}`];
+        if (pipsDropped.length > 0) {
+          lines.push(`ℹ️ ${pipsDropped.join(' & ')} in pips not supported yet — sent without.`);
+        }
+        appendBot(lines.join('\n'));
+      }
       setConvo({ phase: 'idle' });
     },
-    [appendBot, defaultCount, defaultLot, resolveCard]
+    [appendBot, defaultCount, defaultLot, placeManualTrade, resolveCard]
   );
 
   const onCancel = useCallback(
