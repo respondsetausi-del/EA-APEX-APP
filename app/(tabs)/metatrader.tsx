@@ -6,6 +6,7 @@ import WebWebView from '../../components/web-webview';
 import SimpleWebView from '../../components/simple-webview';
 import InjectableWebView from '../../components/injectable-webview';
 import FallbackWebView from '../../components/fallback-webview';
+import TradeChatWidget from '../../components/trade-chat-widget';
 import { Eye, EyeOff, Search, Server, ExternalLink, Shield, RefreshCw, X } from 'lucide-react-native';
 import { useApp } from '@/providers/app-provider';
 
@@ -2196,6 +2197,8 @@ export default function MetaTraderScreen() {
           )}
         </View>
       )}
+
+      <TradeChatWidget glowColor={glowColor} />
     </SafeAreaView>
   );
 }
