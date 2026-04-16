@@ -1023,22 +1023,30 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
 
     const inMt4 = mt4Symbols.some(s => s.symbol.toUpperCase() === symbol);
     const inMt5 = mt5Symbols.some(s => s.symbol.toUpperCase() === symbol);
+    const hasMt4Account = !!(mt4Account?.login && mt4Account?.password && mt4Account?.server);
+    const hasMt5Account = !!(mt5Account?.login && mt5Account?.password && mt5Account?.server);
 
-    if (!inMt4 && !inMt5) {
+    if (!hasMt4Account && !hasMt5Account) {
       return {
         ok: false,
-        error: `${symbol} isn't configured in Trade Config. Add it first, then try again.`,
+        error: 'No MT4/MT5 account configured. Add one in settings before placing trades.',
       };
     }
 
     let platform: 'MT4' | 'MT5';
     if (req.platform) {
+      if (req.platform === 'MT4' && !hasMt4Account) {
+        return { ok: false, error: 'MT4 account not configured.' };
+      }
+      if (req.platform === 'MT5' && !hasMt5Account) {
+        return { ok: false, error: 'MT5 account not configured.' };
+      }
       platform = req.platform;
-    } else if (inMt5 && mt5Account?.connected) {
+    } else if (inMt5 && hasMt5Account) {
       platform = 'MT5';
-    } else if (inMt4 && mt4Account?.connected) {
+    } else if (inMt4 && hasMt4Account) {
       platform = 'MT4';
-    } else if (inMt5) {
+    } else if (hasMt5Account) {
       platform = 'MT5';
     } else {
       platform = 'MT4';
@@ -1055,6 +1063,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     };
 
     const synthetic: SignalLog = {
+      id: `manual-${Date.now()}`,
       asset: symbol,
       action: req.action,
       price: '0',
@@ -1062,7 +1071,10 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       sl: req.slPrice !== undefined ? String(req.slPrice) : '',
       time: new Date().toISOString(),
       latestupdate: new Date().toISOString(),
+      receivedAt: new Date(),
     };
+
+    console.log('[placeManualTrade] dispatching', { symbol, action: req.action, lot: req.lot, count: req.count, platform, configured: inMt4 || inMt5 });
 
     setManualTradeRequest(manual);
     setTradingSignal(synthetic);

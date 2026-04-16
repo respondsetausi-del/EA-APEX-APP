@@ -226,12 +226,17 @@ export function TradeChatWidget({
 
       if (!result.ok) {
         appendBot(`⚠️ ${result.error ?? 'Could not place trade.'}`);
+        console.log('[chat] placeManualTrade failed:', result.error);
       } else {
-        const lines = [`✅ Sent to ${result.platform}: ${summary}`];
+        const lines = [
+          `✅ Sent to ${result.platform}: ${summary}`,
+          'Opening terminal to execute…',
+        ];
         if (pipsDropped.length > 0) {
           lines.push(`ℹ️ ${pipsDropped.join(' & ')} in pips not supported yet — sent without.`);
         }
         appendBot(lines.join('\n'));
+        console.log('[chat] placeManualTrade dispatched to', result.platform);
       }
       setConvo({ phase: 'idle' });
     },
@@ -367,13 +372,17 @@ export function TradeChatWidget({
 
   const startListening = useCallback(() => {
     if (Platform.OS !== 'web') {
-      appendBot('Voice input is web-only for now. Please type your command.');
+      appendBot('🎤 Voice input needs a web browser. On mobile, please type your command — e.g., "buy gold 0.01".');
       return;
     }
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
-      appendBot('Voice input isn\'t supported in this browser. Please type your command.');
+      appendBot('🎤 This browser doesn\'t support voice. Try Chrome/Edge on desktop, or type your command.');
       setVoiceSupported(false);
+      return;
+    }
+    if (typeof window !== 'undefined' && !(window as any).isSecureContext) {
+      appendBot('🎤 Voice requires a secure (https) page. Please type your command instead.');
       return;
     }
     try {
@@ -386,6 +395,8 @@ export function TradeChatWidget({
     r.maxAlternatives = 1;
     r.continuous = false;
 
+    let gotAnyResult = false;
+
     r.onstart = () => {
       setIsListening(true);
       setInterim('');
@@ -395,6 +406,7 @@ export function TradeChatWidget({
       const res = event.results[event.results.length - 1];
       const transcript = res[0].transcript as string;
       if (res.isFinal) {
+        gotAnyResult = true;
         setIsListening(false);
         setInterim('');
         processText(transcript, { fromVoice: true });
@@ -406,25 +418,35 @@ export function TradeChatWidget({
     r.onerror = (event: any) => {
       setIsListening(false);
       setInterim('');
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        appendBot('🎤 Microphone access denied. Type instead.');
-      } else if (event.error === 'no-speech') {
-        appendBot('🎤 Didn\'t catch anything. Tap the mic and try again.');
-      } else if (event.error !== 'aborted') {
-        appendBot(`🎤 Voice error: ${event.error}. Type instead.`);
+      const err = event?.error || 'unknown';
+      console.log('[voice] error:', err);
+      if (err === 'not-allowed' || err === 'service-not-allowed') {
+        appendBot('🎤 Microphone access denied. Check browser permissions, then tap the mic again.');
+      } else if (err === 'no-speech') {
+        appendBot('🎤 Didn\'t hear anything. Tap the mic and speak clearly.');
+      } else if (err === 'audio-capture') {
+        appendBot('🎤 No microphone detected. Plug one in or type instead.');
+      } else if (err === 'network') {
+        appendBot('🎤 Voice service unreachable (network). Type instead.');
+      } else if (err !== 'aborted') {
+        appendBot(`🎤 Voice error (${err}). Type instead.`);
       }
     };
 
     r.onend = () => {
       setIsListening(false);
       setInterim('');
+      if (!gotAnyResult) {
+        console.log('[voice] ended with no final result');
+      }
     };
 
     recognitionRef.current = r;
     try {
       r.start();
-    } catch (err) {
+    } catch (err: any) {
       setIsListening(false);
+      console.log('[voice] start failed:', err?.message || err);
       appendBot('🎤 Could not start voice input. Type instead.');
     }
   }, [appendBot, processText]);
@@ -530,11 +552,25 @@ export function TradeChatWidget({
         onRequestClose={() => setIsOpen(false)}
       >
         <View style={styles.modalBackdrop}>
+          <TouchableOpacity
+            style={styles.backdropDismiss}
+            activeOpacity={1}
+            onPress={() => setIsOpen(false)}
+            testID="trade-chat-backdrop"
+          />
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={styles.sheetWrap}
           >
             <View style={[styles.sheet, { borderColor: glowColor + '55' }]}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setIsOpen(false)}
+                style={styles.dragHandleWrap}
+                testID="trade-chat-drag-handle"
+              >
+                <View style={[styles.dragHandle, { backgroundColor: glowColor + '77' }]} />
+              </TouchableOpacity>
               <View style={[styles.header, { borderBottomColor: glowColor + '33' }]}>
                 <View style={styles.headerTitleRow}>
                   <View
@@ -547,13 +583,25 @@ export function TradeChatWidget({
                   />
                   <Text style={[styles.headerTitle, { color: glowColor }]}>TRADE ASSISTANT</Text>
                 </View>
-                <TouchableOpacity
-                  onPress={() => setIsOpen(false)}
-                  style={styles.headerClose}
-                  testID="trade-chat-close"
-                >
-                  <X color="#FFFFFF" size={20} />
-                </TouchableOpacity>
+                <View style={styles.headerActions}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setMessages([GREETING]);
+                      setConvo({ phase: 'idle' });
+                    }}
+                    style={styles.headerClearBtn}
+                    testID="trade-chat-clear"
+                  >
+                    <Text style={styles.headerClearText}>Clear</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setIsOpen(false)}
+                    style={styles.headerClose}
+                    testID="trade-chat-close"
+                  >
+                    <X color="#FFFFFF" size={20} />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <FlatList
@@ -760,20 +808,54 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'flex-end',
+  },
+  backdropDismiss: {
+    ...StyleSheet.absoluteFillObject,
   },
   sheetWrap: {
     width: '100%',
   },
   sheet: {
-    height: '75%',
+    height: '55%',
+    maxHeight: 560,
+    minHeight: 380,
     backgroundColor: '#0A0E1C',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
     borderBottomWidth: 0,
     overflow: 'hidden',
+  },
+  dragHandleWrap: {
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  dragHandle: {
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerClearBtn: {
+    paddingHorizontal: 10,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#15192A',
+  },
+  headerClearText: {
+    color: '#E5E7EB',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
   header: {
     flexDirection: 'row',
