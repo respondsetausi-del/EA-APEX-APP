@@ -1546,6 +1546,16 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     }
   }, [visible, tradeConfig, signal, sessionWarm, sessionPlatform, cleanupMT5WebView, startHeartbeat, stopHeartbeat, dispatchTradeToWarmSession]);
 
+  // Auto-dismiss toast 4 seconds after trade succeeds
+  useEffect(() => {
+    if (tradeExecuted && !error) {
+      const timer = setTimeout(() => {
+        teardownSession();
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [tradeExecuted, error, teardownSession]);
+
   // Cleanup keep-alive timer on unmount
   useEffect(() => {
     return () => {

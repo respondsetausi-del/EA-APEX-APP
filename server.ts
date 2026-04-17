@@ -723,14 +723,28 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                        return;
                      }
                      
-                     // DOM diagnostic: report what the terminal actually shows
-                     var diagInputs = document.querySelectorAll('input').length;
-                     var diagButtons = document.querySelectorAll('button').length;
-                     var diagSearchField = !!document.querySelector('input[placeholder="Search symbol"]');
-                     var diagBody = (document.body.innerText || '').substring(0, 200);
-                     console.log('MT5 DOM diagnostic:', { inputs: diagInputs, buttons: diagButtons, searchField: diagSearchField, bodySnippet: diagBody });
-                     sendMessage('step', 'Terminal: ' + diagInputs + ' inputs, ' + diagButtons + ' buttons, search=' + diagSearchField);
-                     await new Promise(r => setTimeout(r, 500));
+                     // Wait for terminal trading UI to be fully ready before executing
+                     sendMessage('step', 'Waiting for terminal trading UI...');
+                     var maxWait = 15000;
+                     var pollMs = 1000;
+                     var elapsed = 0;
+                     while (elapsed < maxWait) {
+                       var hasSearch = !!document.querySelector('input[placeholder="Search symbol"]') ||
+                                       !!document.querySelector('input[placeholder*="Search"]');
+                       var hasButtons = document.querySelectorAll('button').length > 3;
+                       if (hasSearch && hasButtons) {
+                         console.log('MT5 Trading: Terminal UI ready after', elapsed, 'ms');
+                         sendMessage('step', 'Terminal ready — starting trades...');
+                         break;
+                       }
+                       await new Promise(r => setTimeout(r, pollMs));
+                       elapsed += pollMs;
+                       sendMessage('step', 'Waiting for terminal UI... (' + (elapsed / 1000) + 's)');
+                     }
+                     if (elapsed >= maxWait) {
+                       console.log('MT5 Trading: Terminal UI wait timed out — proceeding anyway');
+                       sendMessage('step', 'Terminal wait timed out — attempting trades...');
+                     }
 
                      sendMessage('step', 'Starting execution of ' + numberOfTrades + ' ${action} trade(s) for ${asset}...');
                      console.log('MT5 Trading: STRICT MODE - Target: EXACTLY', numberOfTrades, 'trades');
