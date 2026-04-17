@@ -437,12 +437,153 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                     console.log('MT5 Authentication successful - terminal is accessible');
                     sendMessage('authentication_success', 'MT5 Login Successful - Terminal loaded successfully');
                     
-                    // If this is a trading request, proceed with trading
+                    // If this is a trading request, proceed with trading immediately
                     ${isTradingRequest ? `
                     setTimeout(() => {
                       executeTrading();
                     }, 2000);
                     ` : ''}
+
+                    // Register listener for on-demand trades from the parent frame.
+                    // After the initial trade (if any) completes, the parent can
+                    // send new trade commands without re-loading / re-logging in.
+                    window.__mt5SessionReady = true;
+                    window.addEventListener('message', function(event) {
+                      try {
+                        var cmd = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                        if (cmd && cmd.type === 'execute_trade') {
+                          console.log('[MT5 KeepAlive] Received trade command:', cmd);
+                          sendMessage('step', 'Received trade command for ' + cmd.asset + '...');
+                          // Dynamically build a trade runner from the command payload
+                          (async function runOnDemandTrade() {
+                            try {
+                              var _asset = cmd.asset || '${asset}';
+                              var _action = cmd.action || '${action}';
+                              var _volume = cmd.volume || '${volume}';
+                              var _sl = cmd.sl || '';
+                              var _tp = cmd.tp || '';
+                              var _count = parseInt(cmd.count) || 1;
+                              var _botname = cmd.botname || '${botname}';
+
+                              sendMessage('step', 'Executing ' + _count + ' ' + _action + ' trade(s) on ' + _asset + '...');
+                              for (var ti = 0; ti < _count; ti++) {
+                                var tnum = ti + 1;
+                                sendMessage('step', 'Trade ' + tnum + ' of ' + _count + ': searching ' + _asset + '...');
+
+                                // Search symbol
+                                var sf = document.querySelector('input[placeholder="Search symbol"]') ||
+                                         document.querySelector('input[placeholder*="Search"]');
+                                if (sf) {
+                                  sf.focus(); sf.select(); sf.value = ''; sf.value = _asset;
+                                  sf.dispatchEvent(new Event('input', { bubbles: true }));
+                                  sf.dispatchEvent(new Event('change', { bubbles: true }));
+                                  sf.dispatchEvent(new Event('keyup', { bubbles: true }));
+                                }
+                                await new Promise(function(r){ setTimeout(r, 1500); });
+
+                                // Select symbol
+                                var found = false;
+                                var candidates = document.querySelectorAll('.name.svelte-19bwscl .symbol.svelte-19bwscl, .symbol.svelte-19bwscl, [class*="symbol"]');
+                                for (var ci = 0; ci < candidates.length; ci++) {
+                                  var txt = (candidates[ci].innerText || '').trim();
+                                  if (txt === _asset || txt.includes(_asset)) { candidates[ci].click(); found = true; break; }
+                                }
+                                if (!found) {
+                                  var all = document.querySelectorAll('*');
+                                  for (var ai = 0; ai < all.length; ai++) {
+                                    if ((all[ai].textContent||'').trim() === _asset) {
+                                      var cl = all[ai].closest('button, [role="button"], td, tr');
+                                      if (cl) { cl.click(); found = true; break; }
+                                    }
+                                  }
+                                }
+                                sendMessage('step', 'Trade ' + tnum + ': opening order dialog...');
+                                await new Promise(function(r){ setTimeout(r, 1500); });
+
+                                // Open order dialog
+                                var orderBtn = document.querySelector('.icon-button.withText span.button-text');
+                                if (orderBtn) { orderBtn.click(); }
+                                else {
+                                  var btns = document.querySelectorAll('button');
+                                  for (var bi = 0; bi < btns.length; bi++) {
+                                    var bt = (btns[bi].textContent||'').toLowerCase();
+                                    if (bt.includes('create') && bt.includes('order')) { btns[bi].click(); break; }
+                                  }
+                                }
+                                await new Promise(function(r){ setTimeout(r, 1500); });
+
+                                // Set volume
+                                sendMessage('step', 'Trade ' + tnum + ': setting params (Vol:' + _volume + ')...');
+                                var volField = document.querySelector('.trade-input input[type="text"]') || document.querySelector('input[type="text"]');
+                                if (volField) {
+                                  volField.focus(); volField.select(); volField.value = ''; volField.value = _volume;
+                                  volField.dispatchEvent(new Event('input', { bubbles: true }));
+                                  volField.dispatchEvent(new Event('change', { bubbles: true }));
+                                  volField.dispatchEvent(new Event('blur', { bubbles: true }));
+                                }
+                                await new Promise(function(r){ setTimeout(r, 500); });
+
+                                // Set SL
+                                if (_sl && _sl !== '0' && _sl !== '') {
+                                  var slField = document.querySelector('.sl input[type="text"]');
+                                  if (slField) { slField.focus(); slField.value = ''; slField.value = _sl; slField.dispatchEvent(new Event('input',{bubbles:true})); slField.dispatchEvent(new Event('change',{bubbles:true})); }
+                                }
+                                // Set TP
+                                if (_tp && _tp !== '0' && _tp !== '') {
+                                  var tpField = document.querySelector('.tp input[type="text"]');
+                                  if (tpField) { tpField.focus(); tpField.value = ''; tpField.value = _tp; tpField.dispatchEvent(new Event('input',{bubbles:true})); tpField.dispatchEvent(new Event('change',{bubbles:true})); }
+                                }
+                                // Set comment
+                                var cmtField = document.querySelector('.input.svelte-mtorg2 input[type="text"]') || document.querySelector('.input.svelte-1d8k9kk input[type="text"]');
+                                if (cmtField) { cmtField.focus(); cmtField.value = ''; cmtField.value = _botname; cmtField.dispatchEvent(new Event('input',{bubbles:true})); cmtField.dispatchEvent(new Event('change',{bubbles:true})); }
+                                await new Promise(function(r){ setTimeout(r, 800); });
+
+                                // Execute order
+                                sendMessage('step', 'Trade ' + tnum + ': placing ' + _action + ' order...');
+                                var exBtn = null;
+                                if (_action === 'BUY') { exBtn = document.querySelector('.footer-row button.trade-button:not(.red)'); }
+                                else { exBtn = document.querySelector('.footer-row button.trade-button.red'); }
+                                if (!exBtn) {
+                                  var allBtns = document.querySelectorAll('button');
+                                  for (var xi = 0; xi < allBtns.length; xi++) {
+                                    var btext = allBtns[xi].textContent.toLowerCase();
+                                    if (_action === 'BUY' && btext.includes('buy') && btext.includes('market')) { exBtn = allBtns[xi]; break; }
+                                    if (_action === 'SELL' && btext.includes('sell') && btext.includes('market')) { exBtn = allBtns[xi]; break; }
+                                  }
+                                }
+                                if (exBtn) { exBtn.click(); }
+                                await new Promise(function(r){ setTimeout(r, 2000); });
+
+                                // Confirm
+                                var cfmBtn = document.querySelector('.trade-button.svelte-16cwwe0');
+                                if (!cfmBtn) {
+                                  var cBtns = document.querySelectorAll('button');
+                                  for (var cbi = 0; cbi < cBtns.length; cbi++) {
+                                    var cbt = (cBtns[cbi].textContent||'').toLowerCase();
+                                    if (cbt.includes('ok') || cbt.includes('confirm')) { cfmBtn = cBtns[cbi]; break; }
+                                  }
+                                }
+                                if (cfmBtn) { cfmBtn.click(); }
+                                sendMessage('step', 'Trade ' + tnum + ' of ' + _count + ' placed!');
+                                await new Promise(function(r){ setTimeout(r, 2000); });
+
+                                // Close dialogs
+                                var closeBtns = document.querySelectorAll('button');
+                                for (var di = 0; di < closeBtns.length; di++) {
+                                  var dbt = (closeBtns[di].textContent||'').toLowerCase();
+                                  if (dbt.includes('close') || dbt === 'x') { closeBtns[di].click(); break; }
+                                }
+                                await new Promise(function(r){ setTimeout(r, 1000); });
+                              }
+                              sendMessage('trade_executed', 'All ' + _count + ' ' + _action + ' trade(s) on ' + _asset + ' completed');
+                            } catch(err) {
+                              sendMessage('error', 'On-demand trade failed: ' + err.message);
+                            }
+                          })();
+                        }
+                      } catch(e) { /* ignore non-trade messages */ }
+                    });
+                    sendMessage('step_update', 'Session ready — waiting for trades...');
                     return;
                   }
                   

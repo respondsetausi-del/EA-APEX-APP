@@ -154,23 +154,45 @@ const WebWebView = forwardRef<WebWebViewHandle, WebWebViewProps>(({
   // Handle messages from the iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (iframeRef.current && event.source === iframeRef.current.contentWindow) {
-        try {
-          const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-          console.log('Web WebView message received:', data);
+      // Accept any message that looks like our trading-script format.
+      // The strict event.source === iframe.contentWindow check was rejecting
+      // legitimate messages when the iframe loads nested frames or redirects.
+      try {
+        const raw = event.data;
+        if (raw == null) return;
 
-          if (onMessage) {
-            // Convert web iframe message format to React Native WebView format
-            const rnEvent = {
-              nativeEvent: {
-                data: typeof event.data === 'string' ? event.data : JSON.stringify(event.data)
-              }
-            };
-            onMessage(rnEvent);
+        let data: any = null;
+        if (typeof raw === 'string') {
+          // Only try parsing strings that look like JSON
+          if (raw.startsWith('{') || raw.startsWith('[')) {
+            try { data = JSON.parse(raw); } catch { return; }
+          } else {
+            return;
           }
-        } catch (error) {
-          console.log('Error parsing web iframe message:', error);
+        } else if (typeof raw === 'object') {
+          data = raw;
+        } else {
+          return;
         }
+
+        // Must have a `type` field to be one of our messages
+        if (!data || typeof data.type !== 'string') return;
+
+        // Ignore obvious non-trading message types (React DevTools, etc.)
+        if (data.type.startsWith('__') || data.type.includes('devtools')) return;
+
+        console.log('[WebWebView] Trading message received:', data);
+
+        if (onMessage) {
+          const rnEvent = {
+            nativeEvent: {
+              data: typeof raw === 'string' ? raw : JSON.stringify(data),
+            },
+          };
+          onMessage(rnEvent);
+        }
+      } catch (error) {
+        // Swallow — noise from other postMessage sources on the page
       }
     };
 
