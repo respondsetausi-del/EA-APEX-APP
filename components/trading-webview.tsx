@@ -1357,9 +1357,10 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
 
       switch (data.type) {
         case 'step':
+        case 'step_update':
           console.log('Trading step update:', data.message);
           stopHeartbeat();
-          setCurrentStep(data.message);
+          if (data.message) setCurrentStep(data.message);
           // Restart heartbeat with longer delay to allow real updates
           setTimeout(() => {
             if (Date.now() - lastUpdateRef.current > 3000) {
@@ -1371,7 +1372,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         case 'authentication_success':
           console.log('Trading success:', data.message);
           stopHeartbeat();
-          setCurrentStep(data.message);
+          if (data.message) setCurrentStep(data.message);
           setTradeExecuted(true);
           setLoading(false);
           break;
@@ -1379,7 +1380,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         case 'authentication_failed':
           console.log('Trading close/failed:', data.message);
           stopHeartbeat();
-          setCurrentStep(data.message);
+          if (data.message) setCurrentStep(data.message);
           if (data.type === 'authentication_failed') {
             setError(data.message);
             setLoading(false);
@@ -1408,9 +1409,16 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         case 'trade_executed':
           console.log('Trade executed:', data.message);
           stopHeartbeat();
-          setCurrentStep(data.message);
+          if (data.message) setCurrentStep(data.message);
           setTradeExecuted(true);
           setLoading(false);
+          break;
+        default:
+          // Surface unknown message types that still carry a message
+          if (data.message && typeof data.message === 'string') {
+            console.log('Unknown type, showing message anyway:', data.type, data.message);
+            setCurrentStep(data.message);
+          }
           break;
       }
     } catch (parseError) {
@@ -1419,38 +1427,26 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
   }, [tradeConfig, cleanupMT5WebView, onClose, stopHeartbeat, startHeartbeat]);
 
   // Handle WebView load events
+  // Note: the proxy server embeds the full login+trade script into the HTML
+  // response itself (see handleMT5Proxy / handleMT4Proxy in server.ts). So we
+  // do NOT inject a second client-side script here — it would conflict with
+  // the proxy-embedded script. We just surface status updates sent via
+  // postMessage from the embedded script.
   const handleWebViewLoad = useCallback(() => {
     console.log('[TradingWebView] WebView loaded. Platform:', Platform.OS, 'Type:', Platform.OS === 'web' ? 'WebWebView' : 'CustomWebView');
     setLoading(true);
     stopHeartbeat();
-    setCurrentStep('Terminal loaded — preparing trade...');
+    setCurrentStep('Terminal loaded — waiting for proxy script...');
     lastUpdateRef.current = Date.now();
 
-    // Wait for terminal to fully load, then inject trading JavaScript
+    // Arm heartbeat fallback if no step messages arrive within 4s
     setTimeout(() => {
-      if (webViewRef.current && tradeConfig) {
-        const tradingScript = tradeConfig.platform === 'MT4'
-          ? generateMT4JavaScript()
-          : generateMT5JavaScript();
-
-        if (!tradingScript) {
-          console.error('[TradingWebView] Trading script is empty — missing signal/config/credentials');
-          setError('Could not build trade script. Check account credentials.');
-          setLoading(false);
-          return;
-        }
-
-        console.log('[TradingWebView] Injecting', tradeConfig.platform, 'script (', tradingScript.length, 'chars)');
-        setCurrentStep('Injecting trade strategy...');
-        lastUpdateRef.current = Date.now();
-        webViewRef.current.injectJavaScript(tradingScript);
-      } else {
-        console.error('[TradingWebView] Cannot inject — ref:', !!webViewRef.current, 'config:', !!tradeConfig);
-        setError('WebView not ready. Tap Retry or try again.');
-        setLoading(false);
+      if (Date.now() - lastUpdateRef.current > 3500) {
+        console.log('[TradingWebView] No step messages yet — starting heartbeat fallback');
+        startHeartbeat();
       }
-    }, 3000); // Wait 3 seconds for terminal to fully load
-  }, [tradeConfig, stopHeartbeat, generateMT4JavaScript, generateMT5JavaScript]);
+    }, 4000);
+  }, [stopHeartbeat, startHeartbeat]);
 
   const handleWebViewError = useCallback((syntheticEvent: any) => {
     const { nativeEvent } = syntheticEvent;
