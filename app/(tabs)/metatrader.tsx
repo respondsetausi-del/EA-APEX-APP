@@ -1801,11 +1801,41 @@ export default function MetaTraderScreen() {
       return;
     }
 
-    // Show web view based on active tab
+    // Save credentials immediately and mark as connected.
+    // The actual broker authentication happens when a trade is placed
+    // (the proxy terminal handles login + trade in one flow).
+    const trimmedLogin = login.trim();
+    const trimmedPassword = password.trim();
+    const trimmedServer = server.trim();
+
     if (activeTab === 'MT5') {
-      handleMT5WebView();
+      setMT5Account({
+        login: trimmedLogin,
+        password: trimmedPassword,
+        server: trimmedServer,
+        connected: true,
+      });
+      setMTAccount({
+        type: 'MT5',
+        login: trimmedLogin,
+        server: trimmedServer,
+        connected: true,
+      });
+      Alert.alert('MT5 Account Linked', `Account ${trimmedLogin} on ${trimmedServer} saved successfully. Connection will be verified when you place a trade.`);
     } else {
-      handleMT4WebView();
+      setMT4Account({
+        login: trimmedLogin,
+        password: trimmedPassword,
+        server: trimmedServer,
+        connected: true,
+      });
+      setMTAccount({
+        type: 'MT4',
+        login: trimmedLogin,
+        server: trimmedServer,
+        connected: true,
+      });
+      Alert.alert('MT4 Account Linked', `Account ${trimmedLogin} on ${trimmedServer} saved successfully. Connection will be verified when you place a trade.`);
     }
   };
 
@@ -2069,26 +2099,15 @@ export default function MetaTraderScreen() {
               styles.linkButton,
               { borderWidth: 1, borderColor: glowColor + '50' },
               isAuthenticating && styles.linkButtonDisabled,
-              activeTab === 'MT4' && styles.linkButtonComingSoon
             ]}
-            onPress={activeTab === 'MT4' ? undefined : handleLinkAccount}
-            disabled={isAuthenticating || activeTab === 'MT4'}
+            onPress={handleLinkAccount}
+            disabled={isAuthenticating}
           >
             {isAuthenticating ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator color={glowColor} size="small" />
                 <Text style={styles.linkButtonText}>
                   AUTHENTICATING...
-                </Text>
-              </View>
-            ) : activeTab === 'MT4' ? (
-              <View style={styles.buttonContent}>
-                <Shield color="#999999" size={16} style={styles.buttonIcon} />
-                <Text style={styles.linkButtonText}>
-                  LINK MT4 ACCOUNT DETAILS
-                </Text>
-                <Text style={styles.comingSoonText}>
-                  COMING SOON
                 </Text>
               </View>
             ) : (
