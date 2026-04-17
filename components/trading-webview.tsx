@@ -31,6 +31,8 @@ interface TradeConfig {
   numberOfTrades: string;
 }
 
+const KEEP_ALIVE_MS = 5 * 60 * 1000; // 5 minutes idle timeout
+
 export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps) {
   const { activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, eas, manualTradeRequest } = useApp();
   const [loading, setLoading] = useState<boolean>(true);
@@ -41,6 +43,28 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
   const heartbeatIndexRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(Date.now());
   const webViewRef = useRef<WebView>(null);
+
+  // Keep-alive session state
+  const [sessionWarm, setSessionWarm] = useState<boolean>(false);
+  const [sessionPlatform, setSessionPlatform] = useState<'MT4' | 'MT5' | null>(null);
+  const keepAliveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetKeepAliveTimer = useCallback(() => {
+    if (keepAliveTimerRef.current) clearTimeout(keepAliveTimerRef.current);
+    keepAliveTimerRef.current = setTimeout(() => {
+      console.log('[TradingWebView] Keep-alive expired — tearing down session');
+      setSessionWarm(false);
+      setSessionPlatform(null);
+      onClose();
+    }, KEEP_ALIVE_MS);
+  }, [onClose]);
+
+  const teardownSession = useCallback(() => {
+    if (keepAliveTimerRef.current) clearTimeout(keepAliveTimerRef.current);
+    setSessionWarm(false);
+    setSessionPlatform(null);
+    onClose();
+  }, [onClose]);
 
   // Get trade configuration for the signal
   const getTradeConfig = useCallback((): TradeConfig | null => {
@@ -1361,7 +1385,6 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           console.log('Trading step update:', data.message);
           stopHeartbeat();
           if (data.message) setCurrentStep(data.message);
-          // Restart heartbeat with longer delay to allow real updates
           setTimeout(() => {
             if (Date.now() - lastUpdateRef.current > 3000) {
               startHeartbeat();
@@ -1373,32 +1396,29 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           console.log('Trading success:', data.message);
           stopHeartbeat();
           if (data.message) setCurrentStep(data.message);
-          setTradeExecuted(true);
+          // Mark session as warm — ready for on-demand trades
+          if (tradeConfig?.platform) {
+            setSessionWarm(true);
+            setSessionPlatform(tradeConfig.platform);
+            resetKeepAliveTimer();
+          }
           setLoading(false);
           break;
         case 'close':
-        case 'authentication_failed':
-          console.log('Trading close/failed:', data.message);
+          // Keep-alive: DON'T tear down — stay warm for next trade
+          console.log('Trade complete, keeping session alive:', data.message);
           stopHeartbeat();
           if (data.message) setCurrentStep(data.message);
-          if (data.type === 'authentication_failed') {
-            setError(data.message);
-            setLoading(false);
-          } else {
-            // For MT5, cleanup webview before closing
-            if (tradeConfig?.platform === 'MT5') {
-              cleanupMT5WebView();
-              // Close after cleanup delay
-              setTimeout(() => {
-                onClose();
-              }, 600);
-            } else {
-              // For MT4, close immediately
-              setTimeout(() => {
-                onClose();
-              }, 100);
-            }
-          }
+          setTradeExecuted(true);
+          setLoading(false);
+          resetKeepAliveTimer();
+          break;
+        case 'authentication_failed':
+          console.log('Auth failed:', data.message);
+          stopHeartbeat();
+          setCurrentStep(data.message);
+          setError(data.message);
+          setLoading(false);
           break;
         case 'error':
           console.log('Trading error:', data.message);
@@ -1412,9 +1432,9 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           if (data.message) setCurrentStep(data.message);
           setTradeExecuted(true);
           setLoading(false);
+          resetKeepAliveTimer();
           break;
         default:
-          // Surface unknown message types that still carry a message
           if (data.message && typeof data.message === 'string') {
             console.log('Unknown type, showing message anyway:', data.type, data.message);
             setCurrentStep(data.message);
@@ -1424,7 +1444,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     } catch (parseError) {
       console.error('Error parsing WebView message:', parseError);
     }
-  }, [tradeConfig, cleanupMT5WebView, onClose, stopHeartbeat, startHeartbeat]);
+  }, [tradeConfig, stopHeartbeat, startHeartbeat, resetKeepAliveTimer]);
 
   // Handle WebView load events
   // Note: the proxy server embeds the full login+trade script into the HTML
@@ -1454,22 +1474,75 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     setLoading(false);
   }, []);
 
+  // Dispatch a trade command to the warm iframe via postMessage
+  const dispatchTradeToWarmSession = useCallback(() => {
+    if (!sessionWarm || !webViewRef.current || !tradeConfig || !signal) return false;
+    const cmd = JSON.stringify({
+      type: 'execute_trade',
+      asset: signal.asset,
+      action: signal.action,
+      volume: tradeConfig.lotSize,
+      sl: signal.sl || '',
+      tp: signal.tp || '',
+      count: tradeConfig.numberOfTrades,
+      botname: eaName,
+    });
+    console.log('[TradingWebView] Dispatching to warm session:', cmd);
+    try {
+      webViewRef.current.injectJavaScript(
+        `window.postMessage(${JSON.stringify(cmd)}, '*'); true;`
+      );
+      return true;
+    } catch (e) {
+      console.warn('[TradingWebView] Warm dispatch failed, will reload:', e);
+      return false;
+    }
+  }, [sessionWarm, tradeConfig, signal, eaName]);
+
   // Reset state when modal opens and cleanup when closing
   useEffect(() => {
     if (visible) {
-      setLoading(true);
-      setError(null);
-      setTradeExecuted(false);
-      setCurrentStep('Initializing...');
-      startHeartbeat();
-    } else {
+      // If we have a warm session on the same platform, reuse it
+      if (sessionWarm && sessionPlatform === tradeConfig?.platform && signal) {
+        console.log('[TradingWebView] Reusing warm session for', signal.asset);
+        setError(null);
+        setTradeExecuted(false);
+        setLoading(true);
+        setCurrentStep('Sending trade to active session...');
+        // Give a tick for state to settle, then dispatch
+        setTimeout(() => {
+          const ok = dispatchTradeToWarmSession();
+          if (!ok) {
+            console.log('[TradingWebView] Warm dispatch failed — falling back to cold start');
+            setSessionWarm(false);
+            setSessionPlatform(null);
+            setCurrentStep('Initializing...');
+            startHeartbeat();
+          }
+        }, 100);
+      } else {
+        // Cold start: new session
+        setLoading(true);
+        setError(null);
+        setTradeExecuted(false);
+        setCurrentStep('Initializing...');
+        startHeartbeat();
+      }
+    } else if (!sessionWarm) {
+      // Only cleanup when truly closing (not keep-alive)
       stopHeartbeat();
-      // Modal is closing - cleanup MT5 if needed
       if (tradeConfig?.platform === 'MT5') {
         cleanupMT5WebView();
       }
     }
-  }, [visible, tradeConfig, cleanupMT5WebView, startHeartbeat, stopHeartbeat]);
+  }, [visible, tradeConfig, signal, sessionWarm, sessionPlatform, cleanupMT5WebView, startHeartbeat, stopHeartbeat, dispatchTradeToWarmSession]);
+
+  // Cleanup keep-alive timer on unmount
+  useEffect(() => {
+    return () => {
+      if (keepAliveTimerRef.current) clearTimeout(keepAliveTimerRef.current);
+    };
+  }, []);
 
   // Debug logging
   useEffect(() => {
@@ -1499,17 +1572,22 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     });
   }, [visible, signal, tradeConfig, credentials]);
 
-  // Don't render if no signal or config
-  if (!signal || !tradeConfig || !credentials) {
+  // Keep rendering if session is warm (even if no current signal)
+  if (!sessionWarm && (!signal || !tradeConfig || !credentials)) {
     console.log('TradingWebView not rendering:', {
       hasSignal: !!signal,
       hasTradeConfig: !!tradeConfig,
-      hasCredentials: !!credentials
+      hasCredentials: !!credentials,
+      sessionWarm,
     });
     return null;
   }
 
-  console.log('TradingWebView rendering with signal:', signal.asset, 'platform:', tradeConfig.platform);
+  console.log('TradingWebView rendering:', {
+    signal: signal?.asset,
+    platform: tradeConfig?.platform,
+    sessionWarm,
+  });
 
   const webViewUrl = sessionWebViewUrl;
 
@@ -1540,10 +1618,10 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
               </View>
               <View style={styles.toastInfo}>
                 <Text style={styles.toastTitle}>
-                  {signal.asset} • {signal.action} • {tradeConfig.platform}
+                  {signal?.asset || '—'} • {signal?.action || '—'} • {tradeConfig?.platform || sessionPlatform || '—'}
                 </Text>
                 <Text style={[styles.toastStatus, {
-                  color: error ? '#FF4444' : tradeExecuted ? '#00FF88' : '#CCCCCC'
+                  color: error ? '#FF4444' : tradeExecuted ? '#00FF88' : sessionWarm ? '#00BFFF' : '#CCCCCC'
                 }]}>
                   {error || (tradeExecuted ? 'Execution Complete' : currentStep)}
                 </Text>
@@ -1574,14 +1652,12 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
               <TouchableOpacity
                 style={styles.toastCloseButton}
                 onPress={() => {
-                  // For MT5, cleanup before closing
+                  // Full teardown — kills keep-alive session too
                   if (tradeConfig?.platform === 'MT5') {
                     cleanupMT5WebView();
-                    setTimeout(() => {
-                      onClose();
-                    }, 600);
+                    setTimeout(teardownSession, 600);
                   } else {
-                    onClose();
+                    teardownSession();
                   }
                 }}
               >
