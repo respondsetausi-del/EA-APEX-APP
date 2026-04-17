@@ -1094,52 +1094,6 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
     html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
     html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
 
-    // CRITICAL: inject <base> tag AND fetch/XHR override in <head> BEFORE the
-    // terminal's own scripts.  The <base> tag makes HTML-referenced assets
-    // (script src, link href) resolve to the broker.  The fetch/XHR override
-    // routes programmatic API calls through /api/broker-proxy so they reach
-    // the broker instead of 404-ing on our server.
-    const baseTag = `<base href="${targetUrl}">`;
-    const headOverrideScript = `<script>
-(function(){
-  var BROKER='${baseUrl}';
-  var O=window.location.origin;
-  // --- Override fetch ---
-  var _f=window.fetch;
-  window.fetch=function(input,init){
-    var url=typeof input==='string'?input:(input instanceof Request?input.url:String(input));
-    if(url.startsWith('/')&&!url.startsWith('/api/')){
-      url='/api/broker-proxy?target='+encodeURIComponent(BROKER+url);
-    }else if(url.startsWith(O+'/')&&!url.includes('/api/')){
-      url='/api/broker-proxy?target='+encodeURIComponent(BROKER+url.substring(O.length));
-    }
-    if(typeof input==='string')return _f.call(this,url,init);
-    return _f.call(this,url,init);
-  };
-  // --- Override XMLHttpRequest.open ---
-  var _o=XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open=function(){
-    var u=arguments[1];
-    if(typeof u==='string'){
-      if(u.startsWith('/')&&!u.startsWith('/api/')){
-        arguments[1]='/api/broker-proxy?target='+encodeURIComponent(BROKER+u);
-      }else if(u.startsWith(O+'/')&&!u.includes('/api/')){
-        arguments[1]='/api/broker-proxy?target='+encodeURIComponent(BROKER+u.substring(O.length));
-      }
-    }
-    return _o.apply(this,arguments);
-  };
-})();
-</script>`;
-
-    if (html.includes('<head>')) {
-      html = html.replace('<head>', '<head>' + baseTag + headOverrideScript);
-    } else if (html.includes('<html>')) {
-      html = html.replace('<html>', '<html><head>' + baseTag + headOverrideScript + '</head>');
-    } else {
-      html = baseTag + html;
-    }
-
     // Inject the script before the closing body tag
     if (html.includes('</body>')) {
       html = html.replace('</body>', authScript + '</body>');
@@ -1151,8 +1105,8 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'X-Frame-Options': 'SAMEORIGIN',
-        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'ALLOWALL',
+        'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0',
@@ -1665,46 +1619,6 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
     html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
     html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
 
-    // Inject <base> tag + fetch/XHR override in <head> (same as MT5 proxy)
-    const baseTag = `<base href="${targetUrl}">`;
-    const headOverrideScript = `<script>
-(function(){
-  var BROKER='${baseUrl}';
-  var O=window.location.origin;
-  var _f=window.fetch;
-  window.fetch=function(input,init){
-    var url=typeof input==='string'?input:(input instanceof Request?input.url:String(input));
-    if(url.startsWith('/')&&!url.startsWith('/api/')){
-      url='/api/broker-proxy?target='+encodeURIComponent(BROKER+url);
-    }else if(url.startsWith(O+'/')&&!url.includes('/api/')){
-      url='/api/broker-proxy?target='+encodeURIComponent(BROKER+url.substring(O.length));
-    }
-    if(typeof input==='string')return _f.call(this,url,init);
-    return _f.call(this,url,init);
-  };
-  var _o=XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open=function(){
-    var u=arguments[1];
-    if(typeof u==='string'){
-      if(u.startsWith('/')&&!u.startsWith('/api/')){
-        arguments[1]='/api/broker-proxy?target='+encodeURIComponent(BROKER+u);
-      }else if(u.startsWith(O+'/')&&!u.includes('/api/')){
-        arguments[1]='/api/broker-proxy?target='+encodeURIComponent(BROKER+u.substring(O.length));
-      }
-    }
-    return _o.apply(this,arguments);
-  };
-})();
-</script>`;
-
-    if (html.includes('<head>')) {
-      html = html.replace('<head>', '<head>' + baseTag + headOverrideScript);
-    } else if (html.includes('<html>')) {
-      html = html.replace('<html>', '<html><head>' + baseTag + headOverrideScript + '</head>');
-    } else {
-      html = baseTag + headOverrideScript + html;
-    }
-
     // Inject the script before the closing body tag
     if (html.includes('</body>')) {
       html = html.replace('</body>', authScript + '</body>');
@@ -1716,8 +1630,8 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'X-Frame-Options': 'SAMEORIGIN',
-        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'ALLOWALL',
+        'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0',

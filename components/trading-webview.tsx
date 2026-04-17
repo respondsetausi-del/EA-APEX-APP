@@ -1684,43 +1684,24 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         </View>
       )}
 
-      {/* WebView for trading execution — VISIBLE so the terminal actually
-          renders with a real viewport. The auth+trade script runs inside,
-          and the user can see/interact if automation stumbles. */}
+      {/* Invisible WebView — runs terminal + auth+trade script in background.
+          The user only sees the toast above; terminal renders off-screen. */}
       {visible && webViewUrl !== '' && (
-        <View style={styles.visibleWebViewContainer}>
-          <View style={styles.visibleWebViewHeader}>
-            <Text style={styles.visibleWebViewTitle}>
-              Executing {signal?.action} {signal?.asset} on {tradeConfig?.platform}
-            </Text>
-            <TouchableOpacity
-              style={styles.visibleWebViewClose}
-              onPress={() => {
-                if (tradeConfig?.platform === 'MT5') {
-                  cleanupMT5WebView();
-                  setTimeout(teardownSession, 600);
-                } else {
-                  teardownSession();
-                }
-              }}
-            >
-              <X color="#FFFFFF" size={20} />
-            </TouchableOpacity>
-          </View>
+        <View style={styles.invisibleWebViewContainer}>
           {Platform.OS === 'web' ? (
             <WebWebView
               ref={webViewRef as any}
               url={webViewUrl}
               onMessage={handleWebViewMessage}
               onLoadEnd={handleWebViewLoad}
-              style={styles.visibleWebView}
+              style={styles.invisibleWebView}
             />
           ) : (
             <CustomWebView
               url={webViewUrl}
               onMessage={handleWebViewMessage}
               onLoadEnd={handleWebViewLoad}
-              style={styles.visibleWebView}
+              style={styles.invisibleWebView}
             />
           )}
         </View>
@@ -1918,13 +1899,13 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: '#000',
   },
-  // Legacy invisible styles (kept for compatibility with any callers)
+  // Invisible WebView — off-screen 1x1, matches tradeport-ea-app
   invisibleWebViewContainer: {
     position: 'absolute',
     top: -10000,
     left: -10000,
-    width: 800,
-    height: 600,
+    width: 1,
+    height: 1,
     opacity: 0,
     zIndex: -10000,
     overflow: 'hidden',
@@ -1932,12 +1913,10 @@ const styles = StyleSheet.create({
     elevation: -10000,
   },
   invisibleWebView: {
-    width: 800,
-    height: 600,
+    width: '100%',
+    height: '100%',
     opacity: 0,
     backgroundColor: 'transparent',
-    pointerEvents: 'none',
-    elevation: -10000,
   },
   closeButton: {
     position: 'absolute',
