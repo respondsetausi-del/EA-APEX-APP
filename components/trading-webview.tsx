@@ -1899,7 +1899,9 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: '#000',
   },
-  // Invisible WebView — off-screen 1x1, matches tradeport-ea-app
+  // Invisible WebView — off-screen 1x1 container (matches tradeport-ea-app).
+  // The iframe inside gets explicit 1280x800 so the terminal has a real
+  // viewport even though the container clips it to 1x1.
   invisibleWebViewContainer: {
     position: 'absolute',
     top: -10000,
@@ -1913,8 +1915,8 @@ const styles = StyleSheet.create({
     elevation: -10000,
   },
   invisibleWebView: {
-    width: '100%',
-    height: '100%',
+    width: 1,
+    height: 1,
     opacity: 0,
     backgroundColor: 'transparent',
     display: 'flex',
