@@ -122,7 +122,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     return null;
   }, [signal, activeSymbols, mt4Symbols, mt5Symbols, manualTradeRequest]);
 
-  const tradeConfig = getTradeConfig();
+  const tradeConfig = useMemo(() => getTradeConfig(), [getTradeConfig]);
 
   // Debug logging for trade configuration
   useEffect(() => {
@@ -178,7 +178,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     return null;
   }, [tradeConfig, mt4Account, mt5Account]);
 
-  const credentials = getAccountCredentials();
+  const credentials = useMemo(() => getAccountCredentials(), [getAccountCredentials]);
 
   // Generate MT4 authentication and trading JavaScript - Reverted to working state
   const generateMT4JavaScript = useCallback(() => {
@@ -1685,7 +1685,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
       )}
 
       {/* WebView for trading execution - Completely invisible, runs in background */}
-      {visible && (
+      {visible && webViewUrl !== '' && (
         <View style={styles.invisibleWebViewContainer}>
           {Platform.OS === 'web' ? (
             <WebWebView
@@ -1857,23 +1857,23 @@ const styles = StyleSheet.create({
   // Invisible WebView Styles - Completely invisible and non-interactive
   invisibleWebViewContainer: {
     position: 'absolute',
-    top: -10000, // Move completely off-screen
+    top: -10000,
     left: -10000,
-    width: 1, // Minimal size
-    height: 1,
-    opacity: 0, // Completely transparent
-    zIndex: -10000, // Far behind everything
+    width: 800,
+    height: 600,
+    opacity: 0,
+    zIndex: -10000,
     overflow: 'hidden',
-    pointerEvents: 'none', // Disable all touch events
-    elevation: -10000, // Android: behind everything
+    pointerEvents: 'none',
+    elevation: -10000,
   },
   invisibleWebView: {
-    width: 1,
-    height: 1,
+    width: 800,
+    height: 600,
     opacity: 0,
     backgroundColor: 'transparent',
-    pointerEvents: 'none', // Disable all touch events
-    elevation: -10000, // Android: behind everything
+    pointerEvents: 'none',
+    elevation: -10000,
   },
   closeButton: {
     position: 'absolute',
