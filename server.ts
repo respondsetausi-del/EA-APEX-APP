@@ -171,6 +171,84 @@ async function serveStatic(request: Request): Promise<Response> {
 }
 
 // Helper function to extract base URL from terminal URL
+// --- Broker proxy: forward terminal API / asset requests to the real broker ---
+const ALLOWED_BROKER_HOSTS = [
+  'webtrader.razormarkets.co.za',
+  'metatraderweb.app',
+  'trade.mql5.com',
+];
+
+async function handleBrokerProxy(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const targetUrl = url.searchParams.get('target');
+  if (!targetUrl) {
+    return new Response(JSON.stringify({ error: 'Missing target parameter' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  let target: URL;
+  try {
+    target = new URL(targetUrl);
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid target URL' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (!ALLOWED_BROKER_HOSTS.some(h => target.hostname === h || target.hostname.endsWith('.' + h))) {
+    return new Response(JSON.stringify({ error: 'Domain not allowed' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const fwdHeaders: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Language': 'en-US,en;q=0.5',
+    };
+    const ct = request.headers.get('Content-Type');
+    if (ct) fwdHeaders['Content-Type'] = ct;
+    const accept = request.headers.get('Accept');
+    if (accept) fwdHeaders['Accept'] = accept;
+
+    const resp = await fetch(targetUrl, {
+      method: request.method,
+      headers: fwdHeaders,
+      body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer(),
+    });
+
+    const responseHeaders = new Headers();
+    const respCt = resp.headers.get('Content-Type');
+    if (respCt) responseHeaders.set('Content-Type', respCt);
+    const respCl = resp.headers.get('Content-Length');
+    if (respCl) responseHeaders.set('Content-Length', respCl);
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Accept');
+    responseHeaders.set('Cache-Control', 'no-cache');
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: responseHeaders });
+    }
+
+    return new Response(resp.body, {
+      status: resp.status,
+      headers: responseHeaders,
+    });
+  } catch (e: any) {
+    console.error('Broker proxy error:', e);
+    return new Response(JSON.stringify({ error: 'Broker proxy failed: ' + e.message }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
 function getBaseUrlFromTerminalUrl(terminalUrl: string): string {
   try {
     const url = new URL(terminalUrl);
@@ -992,14 +1070,22 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                    }
                  };
 
-                // Start authentication after page loads - optimized timing
-              if (document.readyState === 'complete') {
-                setTimeout(authenticateMT5, 1500); // Reduced from 3000ms to 1500ms
-              } else {
-                window.addEventListener('load', function() {
-                  setTimeout(authenticateMT5, 1500); // Reduced from 3000ms to 1500ms
-                });
-              }
+                // Start authentication — don't rely solely on 'load' event
+                // (it may never fire if some sub-resources hang).
+                var __authStarted = false;
+                function __startAuth() {
+                  if (__authStarted) return;
+                  __authStarted = true;
+                  setTimeout(authenticateMT5, 1500);
+                }
+                if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                  __startAuth();
+                } else {
+                  document.addEventListener('DOMContentLoaded', __startAuth);
+                  window.addEventListener('load', __startAuth);
+                }
+                // Absolute fallback: start after 8s no matter what
+                setTimeout(__startAuth, 8000);
             })();
           </script>
         `;
@@ -1008,14 +1094,48 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
     html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
     html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
 
-    // CRITICAL: inject <base> tag so all the terminal's relative URLs resolve
-    // back to the broker's server (where the JS bundles, CSS, images live).
-    // Without this, the terminal never finishes loading inside the proxied iframe.
+    // CRITICAL: inject <base> tag AND fetch/XHR override in <head> BEFORE the
+    // terminal's own scripts.  The <base> tag makes HTML-referenced assets
+    // (script src, link href) resolve to the broker.  The fetch/XHR override
+    // routes programmatic API calls through /api/broker-proxy so they reach
+    // the broker instead of 404-ing on our server.
     const baseTag = `<base href="${targetUrl}">`;
+    const headOverrideScript = `<script>
+(function(){
+  var BROKER='${baseUrl}';
+  var O=window.location.origin;
+  // --- Override fetch ---
+  var _f=window.fetch;
+  window.fetch=function(input,init){
+    var url=typeof input==='string'?input:(input instanceof Request?input.url:String(input));
+    if(url.startsWith('/')&&!url.startsWith('/api/')){
+      url='/api/broker-proxy?target='+encodeURIComponent(BROKER+url);
+    }else if(url.startsWith(O+'/')&&!url.includes('/api/')){
+      url='/api/broker-proxy?target='+encodeURIComponent(BROKER+url.substring(O.length));
+    }
+    if(typeof input==='string')return _f.call(this,url,init);
+    return _f.call(this,url,init);
+  };
+  // --- Override XMLHttpRequest.open ---
+  var _o=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(){
+    var u=arguments[1];
+    if(typeof u==='string'){
+      if(u.startsWith('/')&&!u.startsWith('/api/')){
+        arguments[1]='/api/broker-proxy?target='+encodeURIComponent(BROKER+u);
+      }else if(u.startsWith(O+'/')&&!u.includes('/api/')){
+        arguments[1]='/api/broker-proxy?target='+encodeURIComponent(BROKER+u.substring(O.length));
+      }
+    }
+    return _o.apply(this,arguments);
+  };
+})();
+</script>`;
+
     if (html.includes('<head>')) {
-      html = html.replace('<head>', '<head>' + baseTag);
+      html = html.replace('<head>', '<head>' + baseTag + headOverrideScript);
     } else if (html.includes('<html>')) {
-      html = html.replace('<html>', '<html><head>' + baseTag + '</head>');
+      html = html.replace('<html>', '<html><head>' + baseTag + headOverrideScript + '</head>');
     } else {
       html = baseTag + html;
     }
@@ -1523,14 +1643,20 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
                  }
                };
               
-              // Start authentication after page loads
-              if (document.readyState === 'complete') {
+              // Start authentication — don't rely solely on 'load' event
+              var __authStarted = false;
+              function __startAuth() {
+                if (__authStarted) return;
+                __authStarted = true;
                 setTimeout(authenticateMT4, 3000);
-              } else {
-                window.addEventListener('load', function() {
-                  setTimeout(authenticateMT4, 3000);
-                });
               }
+              if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                __startAuth();
+              } else {
+                document.addEventListener('DOMContentLoaded', __startAuth);
+                window.addEventListener('load', __startAuth);
+              }
+              setTimeout(__startAuth, 8000);
             })();
           </script>
         `;
@@ -1539,15 +1665,44 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
     html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
     html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
 
-    // CRITICAL: inject <base> tag so the terminal's relative URLs resolve
-    // back to the broker's server (JS bundles, CSS, images).
+    // Inject <base> tag + fetch/XHR override in <head> (same as MT5 proxy)
     const baseTag = `<base href="${targetUrl}">`;
+    const headOverrideScript = `<script>
+(function(){
+  var BROKER='${baseUrl}';
+  var O=window.location.origin;
+  var _f=window.fetch;
+  window.fetch=function(input,init){
+    var url=typeof input==='string'?input:(input instanceof Request?input.url:String(input));
+    if(url.startsWith('/')&&!url.startsWith('/api/')){
+      url='/api/broker-proxy?target='+encodeURIComponent(BROKER+url);
+    }else if(url.startsWith(O+'/')&&!url.includes('/api/')){
+      url='/api/broker-proxy?target='+encodeURIComponent(BROKER+url.substring(O.length));
+    }
+    if(typeof input==='string')return _f.call(this,url,init);
+    return _f.call(this,url,init);
+  };
+  var _o=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(){
+    var u=arguments[1];
+    if(typeof u==='string'){
+      if(u.startsWith('/')&&!u.startsWith('/api/')){
+        arguments[1]='/api/broker-proxy?target='+encodeURIComponent(BROKER+u);
+      }else if(u.startsWith(O+'/')&&!u.includes('/api/')){
+        arguments[1]='/api/broker-proxy?target='+encodeURIComponent(BROKER+u.substring(O.length));
+      }
+    }
+    return _o.apply(this,arguments);
+  };
+})();
+</script>`;
+
     if (html.includes('<head>')) {
-      html = html.replace('<head>', '<head>' + baseTag);
+      html = html.replace('<head>', '<head>' + baseTag + headOverrideScript);
     } else if (html.includes('<html>')) {
-      html = html.replace('<html>', '<html><head>' + baseTag + '</head>');
+      html = html.replace('<html>', '<html><head>' + baseTag + headOverrideScript + '</head>');
     } else {
-      html = baseTag + html;
+      html = baseTag + headOverrideScript + html;
     }
 
     // Inject the script before the closing body tag
@@ -1688,6 +1843,14 @@ async function handleApi(request: Request): Promise<Response> {
         return route.default(expressReq, expressRes);
       }
       return new Response('Method Not Allowed', { status: 405 });
+    }
+
+    // Broker asset/API proxy — the MT5/MT4 terminal JS makes fetch/XHR calls
+    // using relative URLs which resolve to OUR origin (not the broker).  This
+    // endpoint forwards those requests to the real broker server so the
+    // terminal actually initialises.
+    if (pathname === '/api/broker-proxy') {
+      return handleBrokerProxy(request);
     }
 
     // Add MT5 proxy routing
