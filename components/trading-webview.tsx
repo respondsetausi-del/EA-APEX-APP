@@ -1632,7 +1632,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
                 <Text style={[styles.toastStatus, {
                   color: error ? '#FF4444' : tradeExecuted ? '#00FF88' : sessionWarm ? '#00BFFF' : '#CCCCCC'
                 }]}>
-                  {error || (tradeExecuted ? 'Execution Complete' : currentStep)}
+                  {error || currentStep || (tradeExecuted ? 'Execution Complete' : 'Initializing...')}
                 </Text>
               </View>
             </View>
