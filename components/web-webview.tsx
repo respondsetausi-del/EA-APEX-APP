@@ -224,8 +224,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   iframe: {
-    width: '100%',
-    height: '100%',
+    width: 1280,
+    height: 800,
     border: 'none',
     backgroundColor: '#000000',
     display: 'block',
