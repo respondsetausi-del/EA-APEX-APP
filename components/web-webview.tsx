@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 
 interface WebWebViewProps {
@@ -10,16 +10,59 @@ interface WebWebViewProps {
   style?: any;
 }
 
-const WebWebView: React.FC<WebWebViewProps> = ({
+export interface WebWebViewHandle {
+  injectJavaScript: (code: string) => void;
+  reload: () => void;
+}
+
+const WebWebView = forwardRef<WebWebViewHandle, WebWebViewProps>(({
   url,
   script,
   onMessage,
   onLoadEnd,
   onDestroy,
   style
-}) => {
+}, ref) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  useImperativeHandle(ref, () => ({
+    injectJavaScript: (code: string) => {
+      const iframe = iframeRef.current;
+      if (!iframe || !iframe.contentWindow) {
+        console.warn('[WebWebView] injectJavaScript: iframe or contentWindow not available');
+        return;
+      }
+      try {
+        // Ensure ReactNativeWebView shim exists before running injected code
+        const shim = `
+          if (!window.ReactNativeWebView) {
+            window.ReactNativeWebView = {
+              postMessage: function(data) {
+                window.parent.postMessage(data, '*');
+              }
+            };
+          }
+        `;
+        iframe.contentWindow.eval(shim + '\n' + code);
+        console.log('[WebWebView] Script injected successfully');
+      } catch (e: any) {
+        console.warn('[WebWebView] injectJavaScript failed (likely CORS):', e?.message || e);
+        // Fallback: try postMessage-based injection
+        try {
+          iframe.contentWindow.postMessage({ type: '__inject', code }, '*');
+        } catch (e2) {
+          console.warn('[WebWebView] postMessage fallback also failed:', e2);
+        }
+      }
+    },
+    reload: () => {
+      const iframe = iframeRef.current;
+      if (iframe) {
+        iframe.src = url;
+      }
+    },
+  }), [url]);
 
   // Function to clear cache and destroy the WebView
   const clearCacheAndDestroy = () => {
@@ -151,7 +194,7 @@ const WebWebView: React.FC<WebWebViewProps> = ({
       />
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
