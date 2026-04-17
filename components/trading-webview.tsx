@@ -1917,6 +1917,7 @@ const styles = StyleSheet.create({
     height: '100%',
     opacity: 0,
     backgroundColor: 'transparent',
+    display: 'flex',
   },
   closeButton: {
     position: 'absolute',
