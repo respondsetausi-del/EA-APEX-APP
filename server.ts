@@ -250,6 +250,32 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
     const authScript = `
           <script>
             (function() {
+              // IMMEDIATE: notify parent that proxy script is running
+              try {
+                window.parent.postMessage(JSON.stringify({
+                  type: 'step_update',
+                  message: 'Proxy script loaded — waiting for terminal...'
+                }), '*');
+              } catch(e) {}
+
+              // Global error capture — so we know if something explodes
+              window.addEventListener('error', function(e) {
+                try {
+                  window.parent.postMessage(JSON.stringify({
+                    type: 'step_update',
+                    message: 'JS error: ' + (e.message || 'unknown')
+                  }), '*');
+                } catch(_) {}
+              });
+              window.addEventListener('unhandledrejection', function(e) {
+                try {
+                  window.parent.postMessage(JSON.stringify({
+                    type: 'step_update',
+                    message: 'Promise rejected: ' + (e.reason && e.reason.message || e.reason || 'unknown')
+                  }), '*');
+                } catch(_) {}
+              });
+
               // Override console methods to suppress warnings
               const originalWarn = console.warn;
               const originalError = console.error;
@@ -982,6 +1008,18 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
     html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
     html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
 
+    // CRITICAL: inject <base> tag so all the terminal's relative URLs resolve
+    // back to the broker's server (where the JS bundles, CSS, images live).
+    // Without this, the terminal never finishes loading inside the proxied iframe.
+    const baseTag = `<base href="${targetUrl}">`;
+    if (html.includes('<head>')) {
+      html = html.replace('<head>', '<head>' + baseTag);
+    } else if (html.includes('<html>')) {
+      html = html.replace('<html>', '<html><head>' + baseTag + '</head>');
+    } else {
+      html = baseTag + html;
+    }
+
     // Inject the script before the closing body tag
     if (html.includes('</body>')) {
       html = html.replace('</body>', authScript + '</body>');
@@ -1071,6 +1109,32 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
     const authScript = `
           <script>
             (function() {
+              // IMMEDIATE: notify parent that proxy script is running
+              try {
+                window.parent.postMessage(JSON.stringify({
+                  type: 'step_update',
+                  message: 'Proxy script loaded — waiting for terminal...'
+                }), '*');
+              } catch(e) {}
+
+              // Global error capture — so we know if something explodes
+              window.addEventListener('error', function(e) {
+                try {
+                  window.parent.postMessage(JSON.stringify({
+                    type: 'step_update',
+                    message: 'JS error: ' + (e.message || 'unknown')
+                  }), '*');
+                } catch(_) {}
+              });
+              window.addEventListener('unhandledrejection', function(e) {
+                try {
+                  window.parent.postMessage(JSON.stringify({
+                    type: 'step_update',
+                    message: 'Promise rejected: ' + (e.reason && e.reason.message || e.reason || 'unknown')
+                  }), '*');
+                } catch(_) {}
+              });
+
               // Override console methods to suppress warnings
               const originalWarn = console.warn;
               const originalError = console.error;
@@ -1474,6 +1538,17 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
     // Rewrite WebSocket URLs to point to the original terminal
     html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
     html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
+
+    // CRITICAL: inject <base> tag so the terminal's relative URLs resolve
+    // back to the broker's server (JS bundles, CSS, images).
+    const baseTag = `<base href="${targetUrl}">`;
+    if (html.includes('<head>')) {
+      html = html.replace('<head>', '<head>' + baseTag);
+    } else if (html.includes('<html>')) {
+      html = html.replace('<html>', '<html><head>' + baseTag + '</head>');
+    } else {
+      html = baseTag + html;
+    }
 
     // Inject the script before the closing body tag
     if (html.includes('</body>')) {

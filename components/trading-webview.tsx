@@ -1684,23 +1684,43 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         </View>
       )}
 
-      {/* WebView for trading execution - Completely invisible, runs in background */}
+      {/* WebView for trading execution — VISIBLE so the terminal actually
+          renders with a real viewport. The auth+trade script runs inside,
+          and the user can see/interact if automation stumbles. */}
       {visible && webViewUrl !== '' && (
-        <View style={styles.invisibleWebViewContainer}>
+        <View style={styles.visibleWebViewContainer}>
+          <View style={styles.visibleWebViewHeader}>
+            <Text style={styles.visibleWebViewTitle}>
+              Executing {signal?.action} {signal?.asset} on {tradeConfig?.platform}
+            </Text>
+            <TouchableOpacity
+              style={styles.visibleWebViewClose}
+              onPress={() => {
+                if (tradeConfig?.platform === 'MT5') {
+                  cleanupMT5WebView();
+                  setTimeout(teardownSession, 600);
+                } else {
+                  teardownSession();
+                }
+              }}
+            >
+              <X color="#FFFFFF" size={20} />
+            </TouchableOpacity>
+          </View>
           {Platform.OS === 'web' ? (
             <WebWebView
               ref={webViewRef as any}
               url={webViewUrl}
               onMessage={handleWebViewMessage}
               onLoadEnd={handleWebViewLoad}
-              style={styles.invisibleWebView}
+              style={styles.visibleWebView}
             />
           ) : (
             <CustomWebView
               url={webViewUrl}
               onMessage={handleWebViewMessage}
               onLoadEnd={handleWebViewLoad}
-              style={styles.invisibleWebView}
+              style={styles.visibleWebView}
             />
           )}
         </View>
@@ -1854,7 +1874,51 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
 
-  // Invisible WebView Styles - Completely invisible and non-interactive
+  // Visible WebView — the terminal must render with a real viewport so its
+  // JS actually loads the trading UI. Positioned under the toast, full width.
+  visibleWebViewContainer: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 110 : 90,
+    left: 10,
+    right: 10,
+    bottom: 10,
+    backgroundColor: '#000',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
+    zIndex: 9999,
+    elevation: 9999,
+  },
+  visibleWebViewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  visibleWebViewTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  visibleWebViewClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  visibleWebView: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: '#000',
+  },
+  // Legacy invisible styles (kept for compatibility with any callers)
   invisibleWebViewContainer: {
     position: 'absolute',
     top: -10000,
