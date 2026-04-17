@@ -435,7 +435,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                   // If any of these indicators are present, authentication was successful
                   if (searchField || createOrderButton || balanceText || hasSymbolList) {
                     console.log('MT5 Authentication successful - terminal is accessible');
-                    sendMessage('authentication_success', 'MT5 Login Successful - Terminal loaded successfully');
+                    sendMessage('authentication_success', 'Logged in (search=' + !!searchField + ', order=' + !!createOrderButton + ', balance=' + balanceText + ', symbols=' + hasSymbolList + ')');
                     
                     // If this is a trading request, proceed with trading immediately
                     ${isTradingRequest ? `
@@ -619,6 +619,15 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                        return;
                      }
                      
+                     // DOM diagnostic: report what the terminal actually shows
+                     var diagInputs = document.querySelectorAll('input').length;
+                     var diagButtons = document.querySelectorAll('button').length;
+                     var diagSearchField = !!document.querySelector('input[placeholder="Search symbol"]');
+                     var diagBody = (document.body.innerText || '').substring(0, 200);
+                     console.log('MT5 DOM diagnostic:', { inputs: diagInputs, buttons: diagButtons, searchField: diagSearchField, bodySnippet: diagBody });
+                     sendMessage('step', 'Terminal: ' + diagInputs + ' inputs, ' + diagButtons + ' buttons, search=' + diagSearchField);
+                     await new Promise(r => setTimeout(r, 500));
+
                      sendMessage('step', 'Starting execution of ' + numberOfTrades + ' ${action} trade(s) for ${asset}...');
                      console.log('MT5 Trading: STRICT MODE - Target: EXACTLY', numberOfTrades, 'trades');
                      
@@ -687,9 +696,10 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                         }
                         
                         if (assetSelected) {
-                          sendMessage('step', 'Asset ${asset} selected for trade ' + (tradeIndex + 1) + '...');
+                          sendMessage('step', '${asset} found — selecting...');
                           await new Promise(r => setTimeout(r, 1500));
                         } else {
+                          sendMessage('step', '⚠ Could not find ${asset} in symbol list');
                           console.log('MT5 Trading: WARNING - Could not select ${asset}');
                         }
                         
@@ -719,9 +729,10 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                         }
                         
                         if (dialogOpened) {
-                          sendMessage('step', 'Order dialog opened for trade ' + (tradeIndex + 1) + '...');
+                          sendMessage('step', 'Order dialog opened — setting params...');
                           await new Promise(r => setTimeout(r, 1500));
                         } else {
+                          sendMessage('step', '⚠ Could not open order dialog — button not found');
                           console.log('MT5 Trading: WARNING - Could not open order dialog');
                         }
                          
@@ -831,7 +842,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                         if (executeButton) {
                           console.log('MT5 Trading: Executing ${action} order for trade', (tradeIndex + 1));
                           executeButton.click();
-                          sendMessage('step', 'Trade ' + (tradeIndex + 1) + ' ${action} order placed, confirming...');
+                          sendMessage('step', '${action} button clicked — confirming...');
                           await new Promise(r => setTimeout(r, 2000));
                           
                           // Confirm the order - Universal approach
@@ -873,6 +884,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                             return false;
                           }
                         } else {
+                          sendMessage('step', '⚠ ${action} button not found — cannot place order');
                           console.log('MT5 Trading: ${action} button not found for trade', (tradeIndex + 1));
                           return false;
                         }
@@ -934,18 +946,18 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                      
                      // Final verification
                      console.log('MT5 Trading: EXECUTION COMPLETED - Final count:', completedTrades, 'trades completed out of', numberOfTrades, 'target');
-                     
+
                      // Final summary with detailed tracking
                      console.log('MT5 Trading: Final summary - Completed:', completedTrades, 'Failed:', failedTrades, 'Total:', numberOfTrades);
-                     sendMessage('trade_executed', 'All trades completed: ' + completedTrades + ' of ' + numberOfTrades + ' successful for ${asset}');
-                     
-                     // Close after completing all trades
+
                      if (completedTrades === numberOfTrades) {
-                       sendMessage('close', 'All ' + numberOfTrades + ' trades executed successfully - closing window');
+                       sendMessage('trade_executed', completedTrades + ' of ' + numberOfTrades + ' ${action} trade(s) placed for ${asset}');
+                       sendMessage('close', 'All ' + numberOfTrades + ' trades executed successfully');
                      } else if (completedTrades > 0) {
-                       sendMessage('close', 'Partial completion: ' + completedTrades + ' of ' + numberOfTrades + ' trades executed - closing window');
+                       sendMessage('trade_executed', 'Partial: ' + completedTrades + ' of ' + numberOfTrades + ' placed for ${asset}');
+                       sendMessage('close', 'Partial completion');
                      } else {
-                       sendMessage('close', 'No trades executed successfully - closing window');
+                       sendMessage('error', 'Trade failed: could not place order. Terminal may not have loaded fully.');
                      }
                      
                    } catch (error) {
