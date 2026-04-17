@@ -170,8 +170,14 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
 
     return `
       (function(){
+        // Shim for web iframe: route postMessage to parent window
+        if (!window.ReactNativeWebView) {
+          window.ReactNativeWebView = {
+            postMessage: function(data) { window.parent.postMessage(data, '*'); }
+          };
+        }
         console.log('Starting MT4 trading sequence - optimized version...');
-        
+
         // Enhanced field input function with proper validation
         function typeInput(el, value) {
           try {
@@ -547,8 +553,14 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
 
     return `
       // MT5 Trading Script
+      // Shim for web iframe: route postMessage to parent window
+      if (!window.ReactNativeWebView) {
+        window.ReactNativeWebView = {
+          postMessage: function(data) { window.parent.postMessage(data, '*'); }
+        };
+      }
       console.log('Starting MT5 trade execution for ${asset}');
-      
+
       const loginScript = \`
         // Try multiple selectors for login fields (broker-specific)
         var x = document.querySelector('input[name="login"]') || 
@@ -1323,7 +1335,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
   const startHeartbeat = useCallback(() => {
     stopHeartbeat();
     const phases: string[] = [
-      'Preparing session...', 'Injecting strategy...', 'Connecting to broker...', 'Verifying interface...', 'Initializing execution...'
+      'Loading terminal...', 'Connecting to broker...', 'Preparing login...', 'Authenticating...', 'Searching symbol...', 'Setting up order...'
     ];
     heartbeatIndexRef.current = 0;
     setCurrentStep('Initializing...');
@@ -1408,24 +1420,34 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
 
   // Handle WebView load events
   const handleWebViewLoad = useCallback(() => {
-    console.log('Trading WebView loaded - injecting trading JavaScript...');
+    console.log('[TradingWebView] WebView loaded. Platform:', Platform.OS, 'Type:', Platform.OS === 'web' ? 'WebWebView' : 'CustomWebView');
     setLoading(true);
     stopHeartbeat();
-    setCurrentStep('Terminal loaded, starting trade execution...');
+    setCurrentStep('Terminal loaded — preparing trade...');
     lastUpdateRef.current = Date.now();
-
-    console.log('Platform:', Platform.OS, 'WebView type:', Platform.OS === 'web' ? 'WebWebView' : 'CustomWebView');
-    console.log('Injecting trading script for', tradeConfig?.platform);
 
     // Wait for terminal to fully load, then inject trading JavaScript
     setTimeout(() => {
       if (webViewRef.current && tradeConfig) {
-        const tradingScript = tradeConfig.platform === 'MT4' 
-          ? generateMT4JavaScript() 
+        const tradingScript = tradeConfig.platform === 'MT4'
+          ? generateMT4JavaScript()
           : generateMT5JavaScript();
-        
-        console.log('Injecting trading JavaScript for', tradeConfig.platform);
+
+        if (!tradingScript) {
+          console.error('[TradingWebView] Trading script is empty — missing signal/config/credentials');
+          setError('Could not build trade script. Check account credentials.');
+          setLoading(false);
+          return;
+        }
+
+        console.log('[TradingWebView] Injecting', tradeConfig.platform, 'script (', tradingScript.length, 'chars)');
+        setCurrentStep('Injecting trade strategy...');
+        lastUpdateRef.current = Date.now();
         webViewRef.current.injectJavaScript(tradingScript);
+      } else {
+        console.error('[TradingWebView] Cannot inject — ref:', !!webViewRef.current, 'config:', !!tradeConfig);
+        setError('WebView not ready. Tap Retry or try again.');
+        setLoading(false);
       }
     }, 3000); // Wait 3 seconds for terminal to fully load
   }, [tradeConfig, stopHeartbeat, generateMT4JavaScript, generateMT5JavaScript]);
@@ -1586,6 +1608,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         <View style={styles.invisibleWebViewContainer}>
           {Platform.OS === 'web' ? (
             <WebWebView
+              ref={webViewRef as any}
               url={webViewUrl}
               onMessage={handleWebViewMessage}
               onLoadEnd={handleWebViewLoad}
