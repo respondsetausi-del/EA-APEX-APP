@@ -1466,6 +1466,15 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         startHeartbeat();
       }
     }, 4000);
+
+    // Diagnostic: if we still haven't heard anything from the proxy script
+    // after 15s, surface a helpful hint rather than spinning forever.
+    setTimeout(() => {
+      if (Date.now() - lastUpdateRef.current > 14000) {
+        console.warn('[TradingWebView] No messages from proxy script after 15s');
+        setCurrentStep('⚠️ Proxy script not responding — check browser console');
+      }
+    }, 15000);
   }, [stopHeartbeat, startHeartbeat]);
 
   const handleWebViewError = useCallback((syntheticEvent: any) => {
