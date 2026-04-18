@@ -8,7 +8,7 @@
 //   - server/api.ts (handleApi + all /api/* routes)
 
 import path from 'path';
-import { proxyCheckEmail, proxyAuthLicense } from './services/ea-converter-proxy';
+import { proxyCheckEmail, proxyAuthLicense, proxySignals } from './services/ea-converter-proxy';
 import { getPool as getSharedPool, shutdownPool } from './app/api/_db';
 import crypto from 'crypto';
 // Declare Bun global for TypeScript linting in non-Bun tooling contexts
@@ -1850,69 +1850,44 @@ async function handleApi(request: Request): Promise<Response> {
       return new Response('Method Not Allowed', { status: 405 });
     }
 
-    // Get new signals for EA since a specific time
+    // Get new signals for this licence's EA.
+    // Now proxies server-side to the PHP endpoint on ea-converter.com —
+    // browser can't reach PHP directly (CORS), but server→server is fine.
+    // EA-lock is enforced server-side: phone_secret → licences row → ea →
+    // signals filtered to that ea only. Same lock the Android APK uses.
     if (pathname === '/api/get-new-signals') {
       if (request.method === 'GET') {
-        const eaId = url.searchParams.get('eaId');
-        const since = url.searchParams.get('since');
-
-        if (!eaId) {
-          return new Response(JSON.stringify({ error: 'EA ID required' }), {
+        const phoneSecret = url.searchParams.get('phone_secret');
+        if (!phoneSecret) {
+          return new Response(JSON.stringify({ error: 'phone_secret required' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json' },
           });
         }
 
-        let conn = null;
         try {
-          const pool = await getSharedPool();
-          conn = await pool.getConnection();
+          const result = await proxySignals(phoneSecret);
 
-          let query: string;
-          let params: any[];
-
-          if (since) {
-            // Get signals since a specific time
-            query = `
-              SELECT id, ea, asset, latestupdate, type, action, price, tp, sl, time, results
-              FROM \`signals\` 
-              WHERE ea = ? AND latestupdate > ? AND results = 'active'
-              ORDER BY latestupdate DESC
-            `;
-            params = [eaId, since];
-          } else {
-            // Get all active signals for EA
-            query = `
-              SELECT id, ea, asset, latestupdate, type, action, price, tp, sl, time, results
-              FROM \`signals\` 
-              WHERE ea = ? AND results = 'active'
-              ORDER BY latestupdate DESC
-            `;
-            params = [eaId];
+          if (result.message !== 'accept') {
+            return new Response(
+              JSON.stringify({ error: 'Upstream PHP returned non-accept', signals: [] }),
+              { status: 502, headers: { 'Content-Type': 'application/json' } }
+            );
           }
 
-          const [rows] = await conn.execute(query, params);
-
-          const result = rows as any[];
-          console.log(`Found ${result.length} new signals for EA ${eaId} since ${since || 'beginning'}`);
-
-          return new Response(JSON.stringify({ signals: result }), {
+          // PHP returns either a single signal object (newest active) or null.
+          // Normalise to an array so the client polling code can iterate
+          // uniformly even if we later switch to a batch-returning endpoint.
+          const signals = result.data ? [result.data] : [];
+          return new Response(JSON.stringify({ signals }), {
             headers: { 'Content-Type': 'application/json' },
           });
         } catch (error) {
-          console.error('❌ Database error in get-new-signals:', error);
-          return new Response(JSON.stringify({ error: 'Database error' }), {
-            status: 500,
+          console.error('❌ Error proxying signals:', error);
+          return new Response(JSON.stringify({ error: 'Proxy error', signals: [] }), {
+            status: 502,
             headers: { 'Content-Type': 'application/json' },
           });
-        } finally {
-          if (conn) {
-            try {
-              conn.release();
-            } catch (releaseError) {
-              console.error('❌ Failed to release connection:', releaseError);
-            }
-          }
         }
       }
       return new Response('Method Not Allowed', { status: 405 });

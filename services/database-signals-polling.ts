@@ -1,14 +1,15 @@
-// Database signals polling — proxies to ea-converter.com PHP legacy endpoint
-// (same path the Android APK hits) instead of directly hitting MySQL, because
-// the render.com Node server can't reliably reach the GoDaddy DB.
+// Database signals polling — hits the SAME-ORIGIN server endpoint
+// /api/get-new-signals?phone_secret=X on render.com, which proxies
+// server-side to the PHP endpoint on ea-converter.com.
 //
-// PHP endpoint: GET admin/api/signals/?phone_secret=X
-// Response: { message: 'accept', data: { id, asset, action, price, tp, sl, time, latestupdate } | null }
+// Client cannot call PHP directly because of CORS + SSL cert issues on
+// the fallback IP. Server→server proxy has neither.
 //
-// The endpoint returns the NEWEST active signal on every poll, so we dedupe
-// by signal id locally to avoid re-firing the same trade.
+// The PHP endpoint returns the NEWEST active signal on every poll,
+// so we dedupe by signal id locally.
 
-import { proxySignals } from './ea-converter-proxy';
+// API base URL — empty on web (same-origin), set via EXPO_PUBLIC_API_BASE_URL on native
+const BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
 
 export interface DatabaseSignal {
   id: string;
@@ -150,45 +151,49 @@ class DatabaseSignalsPollingService {
 
   private async checkForNewSignals(phoneSecret: string) {
     try {
-      const result = await proxySignals(phoneSecret);
+      const url = `${BASE_URL}/api/get-new-signals?phone_secret=${encodeURIComponent(phoneSecret)}`;
+      const res = await fetch(url);
 
-      if (result.message !== 'accept') {
-        console.warn('Signals poll returned non-accept:', result);
+      if (!res.ok) {
+        const body = await res.text().catch(() => '<unreadable>');
+        console.warn(`Signals poll HTTP ${res.status}:`, body.slice(0, 300));
         return;
       }
 
-      const signal = result.data;
-      if (!signal) {
+      const data = (await res.json()) as { signals?: Array<Partial<DatabaseSignal>> };
+      const signals = Array.isArray(data.signals) ? data.signals : [];
+
+      if (signals.length === 0) {
         // No active signal for this EA right now — not an error
         return;
       }
 
-      // Dedupe: PHP always returns the newest active signal so the same id
-      // will keep coming back until admin closes it. Only fire once per id.
-      if (signal.id && signal.id === this.lastSeenSignalId) {
-        return;
-      }
-      this.lastSeenSignalId = signal.id;
+      for (const signal of signals) {
+        if (!signal?.id) continue;
 
-      // Adapt PHP's flat shape into the DatabaseSignal interface the app
-      // provider already consumes (fills in fields PHP doesn't return).
-      const adapted: DatabaseSignal = {
-        id: signal.id,
-        ea: '', // PHP response doesn't include it; app-provider doesn't need it downstream
-        asset: signal.asset,
-        latestupdate: signal.latestupdate,
-        type: 'all',
-        action: signal.action,
-        price: signal.price,
-        tp: signal.tp,
-        sl: signal.sl,
-        time: signal.time,
-        results: 'active',
-      };
+        // Dedupe: server returns newest active signal on every poll,
+        // so the same id keeps coming back until admin closes it.
+        if (signal.id === this.lastSeenSignalId) continue;
+        this.lastSeenSignalId = signal.id;
 
-      console.log('✅ New database signal found:', adapted);
-      if (this.onSignalFound) {
-        this.onSignalFound(adapted);
+        const adapted: DatabaseSignal = {
+          id: signal.id,
+          ea: signal.ea ?? '',
+          asset: signal.asset ?? '',
+          latestupdate: signal.latestupdate ?? '',
+          type: signal.type ?? 'all',
+          action: signal.action ?? '',
+          price: signal.price ?? '0',
+          tp: signal.tp ?? '0',
+          sl: signal.sl ?? '0',
+          time: signal.time ?? '',
+          results: signal.results ?? 'active',
+        };
+
+        console.log('✅ New database signal found:', adapted);
+        if (this.onSignalFound) {
+          this.onSignalFound(adapted);
+        }
       }
     } catch (error) {
       console.error('Error in checkForNewSignals:', error);
