@@ -1,9 +1,14 @@
-// Fix #6: Removed unused hardcoded DB credentials — polling uses /api/ endpoints
+// Database signals polling — proxies to ea-converter.com PHP legacy endpoint
+// (same path the Android APK hits) instead of directly hitting MySQL, because
+// the render.com Node server can't reliably reach the GoDaddy DB.
+//
+// PHP endpoint: GET admin/api/signals/?phone_secret=X
+// Response: { message: 'accept', data: { id, asset, action, price, tp, sl, time, latestupdate } | null }
+//
+// The endpoint returns the NEWEST active signal on every poll, so we dedupe
+// by signal id locally to avoid re-firing the same trade.
 
-// API base URL — match the pattern used in services/api.ts so native builds work.
-// On web this can stay empty (relative paths resolve to the page origin).
-// On native, set EXPO_PUBLIC_API_BASE_URL to the deployed server host.
-const BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+import { proxySignals } from './ea-converter-proxy';
 
 export interface DatabaseSignal {
   id: string;
@@ -44,26 +49,29 @@ class DatabaseSignalsPollingService {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private onSignalFound?: (signal: DatabaseSignal) => void;
   private onError?: (error: string) => void;
-  private currentLicenseKey: string | null = null;
-  private currentEA: string | null = null;
-  private lastPollTime: string | null = null;
+  private currentPhoneSecret: string | null = null;
+  private lastSeenSignalId: string | null = null;
 
-  // Enable database connections
   enableDatabaseConnections() {
     this.isEnabled = true;
     console.log('Database connections enabled for signals polling service');
   }
 
-  // Disable database connections
   disableDatabaseConnections() {
     this.isEnabled = false;
     this.stopPolling();
     console.log('Database connections disabled for signals polling service');
   }
 
-  // Start polling for signals
+  /**
+   * Start polling for signals.
+   *
+   * @param phoneSecret  Licence's phone_secret_code (same auth token the Android
+   *                     APK uses). This is the `phoneSecretKey` field on the
+   *                     EA object stored in the app state.
+   */
   startPolling(
-    licenseKey: string,
+    phoneSecret: string,
     onSignalFound?: (signal: DatabaseSignal) => void,
     onError?: (error: string) => void
   ) {
@@ -74,41 +82,34 @@ class DatabaseSignalsPollingService {
 
     this.onSignalFound = onSignalFound;
     this.onError = onError;
-    this.currentLicenseKey = licenseKey;
-    // Leave lastPollTime null on first poll so the server-side `since` fallback
-    // picks up all existing active signals rather than only ones created AFTER
-    // bot toggle. After the first poll we start tracking real timestamps.
-    this.lastPollTime = null;
+    this.currentPhoneSecret = phoneSecret;
+    this.lastSeenSignalId = null;
 
-    console.log('Starting database signals polling for license:', licenseKey);
+    console.log('Starting database signals polling with phone_secret:', phoneSecret ? 'present' : 'missing');
 
     if (!this.isEnabled) {
       console.log('Database connections disabled - using mock data for testing');
-      this.startMockPolling(licenseKey);
+      this.startMockPolling(phoneSecret);
       return;
     }
 
-    // Start real database polling
-    this.startRealPolling(licenseKey);
+    this.startRealPolling(phoneSecret);
   }
 
-  // Stop polling
   stopPolling() {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
-    this.currentLicenseKey = null;
-    this.currentEA = null;
-    this.lastPollTime = null;
+    this.currentPhoneSecret = null;
+    this.lastSeenSignalId = null;
     console.log('Database signals polling stopped');
   }
 
   // Mock polling for testing (when database is disabled)
-  private startMockPolling(licenseKey: string) {
-    console.log('Starting mock database signals polling for license:', licenseKey);
+  private startMockPolling(phoneSecret: string) {
+    console.log('Starting mock database signals polling');
 
-    // Simulate finding a signal every 30 seconds for testing
     this.intervalId = setInterval(() => {
       const mockSignal: DatabaseSignal = {
         id: 'mock-' + Date.now(),
@@ -121,118 +122,90 @@ class DatabaseSignalsPollingService {
         tp: (Math.random() * 50 + 10).toFixed(2),
         sl: (Math.random() * 30 + 5).toFixed(2),
         time: new Date().toISOString(),
-        results: 'PENDING'
+        results: 'PENDING',
       };
 
       console.log('Mock database signal found:', mockSignal);
       if (this.onSignalFound) {
         this.onSignalFound(mockSignal);
       }
-    }, 30000); // Check every 30 seconds
+    }, 30000);
   }
 
-  // Real database polling
-  private startRealPolling(licenseKey: string) {
-    console.log('Starting real database signals polling for license:', licenseKey);
+  // Real polling — hits the PHP legacy endpoint every 10s, same URL the APK uses
+  private startRealPolling(phoneSecret: string) {
+    console.log('Starting real database signals polling via PHP proxy');
 
-    // Check for signals every 10 seconds
     this.intervalId = setInterval(async () => {
       try {
-        await this.checkForNewSignals(licenseKey);
+        await this.checkForNewSignals(phoneSecret);
       } catch (error) {
         console.error('Error checking for database signals:', error);
         if (this.onError) {
           this.onError(`Database error: ${error}`);
         }
       }
-    }, 10000); // Check every 10 seconds
+    }, 10000);
   }
 
-  // Check for new signals in database
-  private async checkForNewSignals(licenseKey: string) {
+  private async checkForNewSignals(phoneSecret: string) {
     try {
-      console.log('Checking for new database signals for license:', licenseKey);
+      const result = await proxySignals(phoneSecret);
 
-      // First, get the EA from the license
-      const ea = await this.getEAFromLicense(licenseKey);
-      if (!ea) {
-        console.error('Could not find EA for license:', licenseKey);
+      if (result.message !== 'accept') {
+        console.warn('Signals poll returned non-accept:', result);
         return;
       }
 
-      this.currentEA = ea;
-      console.log('Found EA for license:', ea);
-
-      // Get new signals for this EA since last poll
-      const signals = await this.getNewSignalsForEA(ea);
-
-      console.log(`Found ${signals.length} new signals for EA ${ea}:`, signals);
-
-      // Process each signal found
-      for (const signal of signals) {
-        console.log('✅ New database signal found:', signal);
-        if (this.onSignalFound) {
-          this.onSignalFound(signal);
-        }
+      const signal = result.data;
+      if (!signal) {
+        // No active signal for this EA right now — not an error
+        return;
       }
 
-      // Update last poll time
-      this.lastPollTime = new Date().toISOString();
+      // Dedupe: PHP always returns the newest active signal so the same id
+      // will keep coming back until admin closes it. Only fire once per id.
+      if (signal.id && signal.id === this.lastSeenSignalId) {
+        return;
+      }
+      this.lastSeenSignalId = signal.id;
 
+      // Adapt PHP's flat shape into the DatabaseSignal interface the app
+      // provider already consumes (fills in fields PHP doesn't return).
+      const adapted: DatabaseSignal = {
+        id: signal.id,
+        ea: '', // PHP response doesn't include it; app-provider doesn't need it downstream
+        asset: signal.asset,
+        latestupdate: signal.latestupdate,
+        type: 'all',
+        action: signal.action,
+        price: signal.price,
+        tp: signal.tp,
+        sl: signal.sl,
+        time: signal.time,
+        results: 'active',
+      };
+
+      console.log('✅ New database signal found:', adapted);
+      if (this.onSignalFound) {
+        this.onSignalFound(adapted);
+      }
     } catch (error) {
       console.error('Error in checkForNewSignals:', error);
       throw error;
     }
   }
 
-  // Get EA from license key via API
-  private async getEAFromLicense(licenseKey: string): Promise<string | null> {
-    try {
-      const response = await fetch(`${BASE_URL}/api/get-ea-from-license?licenseKey=${encodeURIComponent(licenseKey)}`);
-      if (!response.ok) {
-        throw new Error(`API call failed: ${response.status}`);
-      }
-      const data = await response.json();
-      return data.eaId;
-    } catch (error) {
-      console.error('Error fetching EA from license via API:', error);
-      throw new Error('Failed to fetch EA from license');
-    }
-  }
-
-  // Get new signals for EA since last poll
-  private async getNewSignalsForEA(ea: string): Promise<DatabaseSignal[]> {
-    try {
-      const params = new URLSearchParams({
-        eaId: ea,
-        since: this.lastPollTime || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() // Default to 24 hours ago
-      });
-
-      const response = await fetch(`${BASE_URL}/api/get-new-signals?${params}`);
-      if (!response.ok) {
-        throw new Error(`API call failed: ${response.status}`);
-      }
-      const data = await response.json();
-      return data.signals;
-    } catch (error) {
-      console.error('Error fetching new signals via API:', error);
-      throw new Error('Failed to fetch new signals');
-    }
-  }
-
-  // Check if polling is running
   isRunning(): boolean {
     return this.intervalId !== null;
   }
 
-  // Get current polling status
   getStatus() {
     return {
       isRunning: this.isRunning(),
-      licenseKey: this.currentLicenseKey,
-      ea: this.currentEA,
-      lastPollTime: this.lastPollTime,
-      isEnabled: this.isEnabled
+      phoneSecret: this.currentPhoneSecret ? 'present' : null,
+      lastSeenSignalId: this.lastSeenSignalId,
+      isEnabled: this.isEnabled,
     };
   }
 }

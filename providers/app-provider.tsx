@@ -818,10 +818,13 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       console.log('Bot active state saved:', active);
 
       if (active) {
-        // Start database signals polling when bot is activated
+        // Start database signals polling when bot is activated.
+        // We poll via the PHP legacy endpoint (same as Android APK) using
+        // phoneSecretKey as auth — NOT licenseKey — because the render Node
+        // server can't reach the MySQL DB directly.
         const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
-        if (primaryEA && primaryEA.licenseKey) {
-          console.log('Starting database signals polling for license:', primaryEA.licenseKey);
+        if (primaryEA && primaryEA.phoneSecretKey) {
+          console.log('Starting database signals polling for EA:', primaryEA.name || primaryEA.licenseKey);
 
           const onDatabaseSignalFound = (signal: DatabaseSignal) => {
             console.log('🎯 Database signal found:', signal);
@@ -876,13 +879,13 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
           };
 
           databaseSignalsPollingService.startPolling(
-            primaryEA.licenseKey,
+            primaryEA.phoneSecretKey,
             onDatabaseSignalFound,
             onDatabaseError
           );
           setIsDatabaseSignalsPolling(true);
         } else {
-          console.log('No primary EA with license key found for database signals polling');
+          console.log('No primary EA with phoneSecretKey found for database signals polling');
         }
       } else {
         // Clear signal logs and stop database signals polling when stopping the bot

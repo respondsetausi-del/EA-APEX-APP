@@ -158,6 +158,90 @@ export async function proxySymbols(
   };
 }
 
+/**
+ * Proxy getSignals: maps to Android GET signals/?phone_secret=X
+ * Returns PHP's native shape: { message: 'accept' | 'error', data?: { id, asset, action, price, tp, sl, time, latestupdate } | null }
+ *
+ * Must match how Android's RoboTraderAPI.getSignals calls it
+ * (baseUrl `admin/api/` + @GET("signals/") + @Query("phone_secret")).
+ *
+ * PHP endpoint returns the NEWEST active signal (or null if none). Callers
+ * must dedupe by id so the same signal isn't processed on every poll.
+ */
+export interface ProxySignal {
+  id: string;
+  asset: string;
+  action: string;
+  price: string;
+  tp: string;
+  sl: string;
+  time: string;
+  latestupdate: string;
+}
+
+export async function proxySignals(
+  phoneSecret: string
+): Promise<{ message: 'accept' | 'error'; data?: ProxySignal | null }> {
+  const trimmed = phoneSecret?.trim();
+  if (!trimmed) return { message: 'error' };
+
+  const params = new URLSearchParams({ phone_secret: trimmed });
+  const url = `${BASE_URL}/signals/?${params}`;
+
+  let res: Response;
+  try {
+    res = await fetchWithFallback(url, { method: 'GET' });
+  } catch (err) {
+    console.error('❌ proxySignals fetch error:', err);
+    return { message: 'error' };
+  }
+
+  let bodyText = '';
+  try {
+    bodyText = await res.text();
+  } catch {
+    console.error('❌ proxySignals: could not read response body');
+    return { message: 'error' };
+  }
+
+  if (!res.ok) {
+    console.error(`❌ proxySignals HTTP ${res.status}: ${bodyText.slice(0, 300)}`);
+    return { message: 'error' };
+  }
+
+  let data: { message?: string; data?: Partial<ProxySignal> | null } = {};
+  try {
+    data = JSON.parse(bodyText);
+  } catch {
+    console.error('❌ proxySignals: invalid JSON:', bodyText.slice(0, 300));
+    return { message: 'error' };
+  }
+
+  const msg = String(data.message ?? '').toLowerCase();
+  if (msg !== 'accept') {
+    console.warn('⚠️ proxySignals non-accept response:', bodyText.slice(0, 300));
+    return { message: 'error' };
+  }
+
+  // PHP returns `data: null` when no active signal exists for this EA
+  if (!data.data) return { message: 'accept', data: null };
+
+  const r = data.data;
+  return {
+    message: 'accept',
+    data: {
+      id: String(r.id ?? ''),
+      asset: String(r.asset ?? ''),
+      action: String(r.action ?? ''),
+      price: String(r.price ?? '0'),
+      tp: String(r.tp ?? '0'),
+      sl: String(r.sl ?? '0'),
+      time: String(r.time ?? ''),
+      latestupdate: String(r.latestupdate ?? ''),
+    },
+  };
+}
+
 interface AndroidLicence {
   key?: string;
   k_ey?: string;
