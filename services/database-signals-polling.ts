@@ -1,5 +1,10 @@
 // Fix #6: Removed unused hardcoded DB credentials — polling uses /api/ endpoints
 
+// API base URL — match the pattern used in services/api.ts so native builds work.
+// On web this can stay empty (relative paths resolve to the page origin).
+// On native, set EXPO_PUBLIC_API_BASE_URL to the deployed server host.
+const BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+
 export interface DatabaseSignal {
   id: string;
   ea: string;
@@ -70,7 +75,10 @@ class DatabaseSignalsPollingService {
     this.onSignalFound = onSignalFound;
     this.onError = onError;
     this.currentLicenseKey = licenseKey;
-    this.lastPollTime = new Date().toISOString();
+    // Leave lastPollTime null on first poll so the server-side `since` fallback
+    // picks up all existing active signals rather than only ones created AFTER
+    // bot toggle. After the first poll we start tracking real timestamps.
+    this.lastPollTime = null;
 
     console.log('Starting database signals polling for license:', licenseKey);
 
@@ -180,7 +188,7 @@ class DatabaseSignalsPollingService {
   // Get EA from license key via API
   private async getEAFromLicense(licenseKey: string): Promise<string | null> {
     try {
-      const response = await fetch(`/api/get-ea-from-license?licenseKey=${encodeURIComponent(licenseKey)}`);
+      const response = await fetch(`${BASE_URL}/api/get-ea-from-license?licenseKey=${encodeURIComponent(licenseKey)}`);
       if (!response.ok) {
         throw new Error(`API call failed: ${response.status}`);
       }
@@ -200,7 +208,7 @@ class DatabaseSignalsPollingService {
         since: this.lastPollTime || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() // Default to 24 hours ago
       });
 
-      const response = await fetch(`/api/get-new-signals?${params}`);
+      const response = await fetch(`${BASE_URL}/api/get-new-signals?${params}`);
       if (!response.ok) {
         throw new Error(`API call failed: ${response.status}`);
       }

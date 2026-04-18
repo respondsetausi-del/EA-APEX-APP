@@ -849,9 +849,26 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
               return newLogs;
             });
 
-            // Update new signal for dynamic island
+            // Update new signal for dynamic island (unchanged — keeps the
+            // existing visual notification path working).
             console.log('🎯 Setting new signal for dynamic island:', signalLog);
             setNewSignal(signalLog);
+
+            // Trigger trade execution directly from the poll, rather than
+            // relying on Dynamic Island being mounted. Same active-symbol
+            // gate is applied so EA-locking / user config is respected.
+            const symbolName = signal.asset;
+            const isActiveInLegacy = activeSymbols.some(s => s.symbol === symbolName);
+            const isActiveInMT4 = mt4Symbols.some(s => s.symbol === symbolName);
+            const isActiveInMT5 = mt5Symbols.some(s => s.symbol === symbolName);
+
+            if (isActiveInLegacy || isActiveInMT4 || isActiveInMT5) {
+              console.log('✅ DB signal is for active symbol, triggering trade WebView:', symbolName);
+              setTradingSignal(signalLog);
+              setShowTradingWebView(true);
+            } else {
+              console.log('❌ DB signal ignored - not for active symbol:', symbolName);
+            }
           };
 
           const onDatabaseError = (error: string) => {
@@ -882,7 +899,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       // Revert state on error
       setIsBotActive(!active);
     }
-  }, [requestOverlayPermission, eas]);
+  }, [requestOverlayPermission, eas, activeSymbols, mt4Symbols, mt5Symbols]);
 
   const setGlowColor = useCallback(async (color: string) => {
     setGlowColorState(color);
