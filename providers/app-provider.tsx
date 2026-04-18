@@ -5,6 +5,7 @@ import { Platform, Alert } from 'react-native';
 import { LicenseData, apiService } from '@/services/api';
 import signalsMonitor, { SignalLog } from '@/services/signals-monitor';
 import databaseSignalsPollingService, { DatabaseSignal } from '@/services/database-signals-polling';
+import { proxyAuthLicense } from '@/services/ea-converter-proxy';
 
 export interface User {
   mentorId: string;
@@ -823,7 +824,38 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         // phoneSecretKey as auth — NOT licenseKey — because the render Node
         // server can't reach the MySQL DB directly.
         const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
-        if (primaryEA && primaryEA.phoneSecretKey) {
+
+        // Re-fetch phone_secret_key from auth proxy if it's missing on the EA
+        // object (happens for EAs added before proxyAuthLicense was wired).
+        // Mirrors the Android APK: Android calls POST /auth/ on service start
+        // and uses whatever phone_secret_key comes back.
+        let phoneSecret: string | undefined = primaryEA?.phoneSecretKey;
+        if (primaryEA && !phoneSecret && primaryEA.licenseKey) {
+          console.log('phoneSecretKey missing on EA — re-authenticating to fetch it');
+          try {
+            const authRes = await proxyAuthLicense(primaryEA.licenseKey);
+            if (authRes.message === 'accept' && authRes.data?.phone_secret_key) {
+              phoneSecret = String(authRes.data.phone_secret_key);
+              console.log('Got fresh phone_secret_key from auth proxy');
+              // Persist so we don't re-fetch every toggle
+              setEAs(prev => {
+                const updated = prev.map(e =>
+                  e.id === primaryEA.id ? { ...e, phoneSecretKey: phoneSecret } : e
+                );
+                AsyncStorage.setItem('eas', JSON.stringify(updated)).catch(err =>
+                  console.error('Failed to persist updated EA:', err)
+                );
+                return updated;
+              });
+            } else {
+              console.error('Re-auth failed:', authRes);
+            }
+          } catch (err) {
+            console.error('Re-auth threw:', err);
+          }
+        }
+
+        if (primaryEA && phoneSecret) {
           console.log('Starting database signals polling for EA:', primaryEA.name || primaryEA.licenseKey);
 
           const onDatabaseSignalFound = (signal: DatabaseSignal) => {
@@ -879,13 +911,13 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
           };
 
           databaseSignalsPollingService.startPolling(
-            primaryEA.phoneSecretKey,
+            phoneSecret,
             onDatabaseSignalFound,
             onDatabaseError
           );
           setIsDatabaseSignalsPolling(true);
         } else {
-          console.log('No primary EA with phoneSecretKey found for database signals polling');
+          console.error('Cannot start polling — no EA or no phone_secret_key available');
         }
       } else {
         // Clear signal logs and stop database signals polling when stopping the bot
