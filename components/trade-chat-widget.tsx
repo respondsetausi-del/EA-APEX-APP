@@ -228,14 +228,13 @@ export function TradeChatWidget({
         appendBot(`⚠️ ${result.error ?? 'Could not place trade.'}`);
         console.log('[chat] placeManualTrade failed:', result.error);
       } else {
-        const lines = [
-          `✅ Sent to ${result.platform}: ${summary}`,
-          'Opening terminal to execute…',
-        ];
+        // Single collapsed status line — the preset bubble already shows the
+        // inline "✓ Sent" state, so we don't repeat "Sent to MT5: ..." here.
+        const parts = [`✅ Sent · ${summary} · ${result.platform}`];
         if (pipsDropped.length > 0) {
-          lines.push(`ℹ️ ${pipsDropped.join(' & ')} in pips not supported yet — sent without.`);
+          parts.push(`ℹ️ ${pipsDropped.join(' & ')} in pips not supported yet — sent without.`);
         }
-        appendBot(lines.join('\n'));
+        appendBot(parts.join('\n'));
         console.log('[chat] placeManualTrade dispatched to', result.platform);
       }
       setConvo({ phase: 'idle' });
@@ -495,7 +494,7 @@ export function TradeChatWidget({
             glowColor={glowColor}
             defaultLot={defaultLot}
             defaultCount={defaultCount}
-            onConfirm={() => onConfirm(item.order!, item.id)}
+            onConfirm={(finalOrder) => onConfirm(finalOrder, item.id)}
             onCancel={() => onCancel(item.id)}
           />
         );
@@ -688,101 +687,183 @@ interface ConfirmCardProps {
   glowColor: string;
   defaultLot: number;
   defaultCount: number;
-  onConfirm: () => void;
+  onConfirm: (finalOrder: ParsedOrder) => void;
   onCancel: () => void;
 }
 
+/**
+ * Conversational preset bubble — replaces the old boxy "CONFIRM ORDER" card.
+ *
+ * Shows the parsed order as an inline summary sentence with action chips.
+ * SL and TP are editable via "+ SL" / "+ TP" chips that expand a single
+ * inline numeric input below (no modal, no form). Existing parsed SL/TP
+ * carry over and flip the chip label to "Edit SL" / "Edit TP".
+ */
 function ConfirmCard({ message, glowColor, defaultLot, defaultCount, onConfirm, onCancel }: ConfirmCardProps) {
-  const order = message.order!;
-  const count = order.count ?? defaultCount;
-  const lot = order.lot ?? defaultLot;
+  const baseOrder = message.order!;
+  const count = baseOrder.count ?? defaultCount;
+  const lot = baseOrder.lot ?? defaultLot;
   const resolved = message.resolved;
-  const sl =
-    order.slPips !== undefined
-      ? `${order.slPips} pips`
-      : order.slPrice !== undefined
-      ? `@${order.slPrice}`
-      : '—';
-  const tp =
-    order.tpPips !== undefined
-      ? `${order.tpPips} pips`
-      : order.tpPrice !== undefined
-      ? `@${order.tpPrice}`
-      : '—';
+
+  const [localSlPrice, setLocalSlPrice] = useState<number | undefined>(baseOrder.slPrice);
+  const [localTpPrice, setLocalTpPrice] = useState<number | undefined>(baseOrder.tpPrice);
+  const [expandedInput, setExpandedInput] = useState<'sl' | 'tp' | null>(null);
+  const [slDraft, setSlDraft] = useState<string>(
+    baseOrder.slPrice !== undefined ? String(baseOrder.slPrice) : ''
+  );
+  const [tpDraft, setTpDraft] = useState<string>(
+    baseOrder.tpPrice !== undefined ? String(baseOrder.tpPrice) : ''
+  );
+
+  const slLabel =
+    localSlPrice !== undefined
+      ? `SL ${localSlPrice}`
+      : baseOrder.slPips !== undefined
+      ? `SL ${baseOrder.slPips}p`
+      : 'no SL';
+  const tpLabel =
+    localTpPrice !== undefined
+      ? `TP ${localTpPrice}`
+      : baseOrder.tpPips !== undefined
+      ? `TP ${baseOrder.tpPips}p`
+      : 'no TP';
+
+  const commitSl = () => {
+    const n = parseFloat(slDraft.replace(',', '.'));
+    setLocalSlPrice(isFinite(n) ? n : undefined);
+    setExpandedInput(null);
+  };
+  const commitTp = () => {
+    const n = parseFloat(tpDraft.replace(',', '.'));
+    setLocalTpPrice(isFinite(n) ? n : undefined);
+    setExpandedInput(null);
+  };
+
+  const actionColor = baseOrder.action === 'SELL' ? '#F87171' : '#4ADE80';
+
+  const handleSendIt = () => {
+    onConfirm({
+      ...baseOrder,
+      slPrice: localSlPrice,
+      tpPrice: localTpPrice,
+    });
+  };
 
   return (
     <View style={styles.msgRowBot}>
       <View
         style={[
-          styles.card,
+          styles.presetBubble,
           {
-            borderColor: resolved ? '#2A2F45' : glowColor + '88',
-            shadowColor: glowColor,
+            borderColor: resolved ? '#2A2F45' : glowColor + '44',
           },
           Platform.OS === 'web' &&
             !resolved &&
-            ({ boxShadow: `0 0 12px 1px ${glowColor}44` } as any),
+            ({ boxShadow: `0 0 10px 0 ${glowColor}22` } as any),
         ]}
       >
-        <Text style={[styles.cardTitle, { color: glowColor }]}>CONFIRM ORDER</Text>
-        <View style={styles.cardRow}>
-          <Text style={[styles.cardAction, { color: order.action === 'SELL' ? '#F87171' : '#4ADE80' }]}>
-            {order.action}
-          </Text>
-          <Text style={styles.cardSymbol}>{order.symbol}</Text>
-          <Text style={styles.cardCount}>
-            × {count}
-          </Text>
-        </View>
+        {!resolved && <Text style={styles.presetLead}>Got it.</Text>}
+        <Text style={styles.presetSummary}>
+          <Text style={[styles.presetAction, { color: actionColor }]}>{baseOrder.action}</Text>
+          <Text style={styles.presetDim}>  ×{count}  ·  </Text>
+          <Text style={styles.presetSymbol}>{baseOrder.symbol}</Text>
+          <Text style={styles.presetDim}>  ·  </Text>
+          <Text style={styles.presetLot}>{lot} lot</Text>
+          <Text style={styles.presetDim}>  ·  </Text>
+          <Text style={localSlPrice !== undefined ? styles.presetFilled : styles.presetDim}>{slLabel}</Text>
+          <Text style={styles.presetDim}>  ·  </Text>
+          <Text style={localTpPrice !== undefined ? styles.presetFilled : styles.presetDim}>{tpLabel}</Text>
+        </Text>
+
         {lot > MAX_LOT_WARN && !resolved && (
           <View style={styles.cardWarn}>
             <Text style={styles.cardWarnText}>
-              ⚠ Large lot size ({lot}) — exceeds {MAX_LOT_WARN}. Double-check before confirming.
+              ⚠ Large lot ({lot}) — exceeds {MAX_LOT_WARN}. Double-check before sending.
             </Text>
           </View>
         )}
-        <View style={styles.cardGrid}>
-          <CardField label="Lot" value={String(lot)} />
-          <CardField label="SL" value={sl} />
-          <CardField label="TP" value={tp} />
-        </View>
+
+        {expandedInput === 'sl' && !resolved && (
+          <View style={styles.inlineInputRow}>
+            <Text style={styles.inlineInputLabel}>SL</Text>
+            <TextInput
+              style={[styles.inlineInput, { borderColor: glowColor + '55' }]}
+              value={slDraft}
+              onChangeText={setSlDraft}
+              onSubmitEditing={commitSl}
+              onBlur={commitSl}
+              keyboardType="decimal-pad"
+              placeholder="e.g. 1900.50"
+              placeholderTextColor="#6B7280"
+              autoFocus
+              returnKeyType="done"
+              testID="trade-chat-inline-sl"
+            />
+          </View>
+        )}
+        {expandedInput === 'tp' && !resolved && (
+          <View style={styles.inlineInputRow}>
+            <Text style={styles.inlineInputLabel}>TP</Text>
+            <TextInput
+              style={[styles.inlineInput, { borderColor: glowColor + '55' }]}
+              value={tpDraft}
+              onChangeText={setTpDraft}
+              onSubmitEditing={commitTp}
+              onBlur={commitTp}
+              keyboardType="decimal-pad"
+              placeholder="e.g. 2100.00"
+              placeholderTextColor="#6B7280"
+              autoFocus
+              returnKeyType="done"
+              testID="trade-chat-inline-tp"
+            />
+          </View>
+        )}
+
         {resolved ? (
           <Text
             style={[
-              styles.cardResolved,
+              styles.presetResolved,
               { color: resolved === 'confirmed' ? '#4ADE80' : '#9CA3AF' },
             ]}
           >
-            {resolved === 'confirmed' ? '✓ Confirmed' : '✕ Cancelled'}
+            {resolved === 'confirmed' ? '✓ Sent' : '✕ Cancelled'}
           </Text>
         ) : (
-          <View style={styles.cardActions}>
+          <View style={styles.presetChips}>
             <TouchableOpacity
-              style={[styles.cardBtn, styles.cardBtnCancel]}
+              style={[styles.chip, styles.chipPrimary, { backgroundColor: glowColor }]}
+              onPress={handleSendIt}
+              testID="trade-chat-card-confirm"
+            >
+              <Text style={styles.chipPrimaryText}>Send it</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.chip, styles.chipGhost, { borderColor: glowColor + '55' }]}
+              onPress={() => setExpandedInput(expandedInput === 'sl' ? null : 'sl')}
+            >
+              <Text style={[styles.chipGhostText, { color: glowColor }]}>
+                {localSlPrice !== undefined ? 'Edit SL' : '+ SL'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.chip, styles.chipGhost, { borderColor: glowColor + '55' }]}
+              onPress={() => setExpandedInput(expandedInput === 'tp' ? null : 'tp')}
+            >
+              <Text style={[styles.chipGhostText, { color: glowColor }]}>
+                {localTpPrice !== undefined ? 'Edit TP' : '+ TP'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.chip, styles.chipCancel]}
               onPress={onCancel}
               testID="trade-chat-card-cancel"
             >
-              <Text style={styles.cardBtnCancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.cardBtn, { backgroundColor: glowColor }]}
-              onPress={onConfirm}
-              testID="trade-chat-card-confirm"
-            >
-              <Text style={styles.cardBtnConfirmText}>Confirm</Text>
+              <Text style={styles.chipCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         )}
       </View>
-    </View>
-  );
-}
-
-function CardField({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.cardField}>
-      <Text style={styles.cardFieldLabel}>{label}</Text>
-      <Text style={styles.cardFieldValue}>{value}</Text>
     </View>
   );
 }
@@ -1056,6 +1137,113 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     marginTop: 2,
+  },
+  // ── Preset bubble (replaces the old boxy ConfirmCard) ──
+  presetBubble: {
+    backgroundColor: '#0F1424',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    maxWidth: '92%',
+  },
+  presetLead: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  presetSummary: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    lineHeight: 20,
+    flexWrap: 'wrap',
+  },
+  presetAction: {
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  presetSymbol: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  presetLot: {
+    color: '#E5E7EB',
+    fontWeight: '500',
+  },
+  presetDim: {
+    color: '#6B7280',
+  },
+  presetFilled: {
+    color: '#E5E7EB',
+    fontWeight: '600',
+  },
+  presetResolved: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  presetChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 12,
+  },
+  chip: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipPrimary: {
+    // backgroundColor set inline from glowColor
+  },
+  chipPrimaryText: {
+    color: '#000000',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  chipGhost: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+  },
+  chipGhostText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  chipCancel: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#2A2F45',
+  },
+  chipCancelText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  // ── Inline numeric input (SL/TP) inside preset ──
+  inlineInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  inlineInputLabel: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '700',
+    minWidth: 22,
+  },
+  inlineInput: {
+    flex: 1,
+    backgroundColor: '#15192A',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: Platform.OS === 'web' ? 8 : 6,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
   },
 });
 
