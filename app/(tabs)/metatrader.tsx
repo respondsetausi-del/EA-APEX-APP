@@ -1801,41 +1801,15 @@ export default function MetaTraderScreen() {
       return;
     }
 
-    // Save credentials immediately and mark as connected.
-    // The actual broker authentication happens when a trade is placed
-    // (the proxy terminal handles login + trade in one flow).
-    const trimmedLogin = login.trim();
-    const trimmedPassword = password.trim();
-    const trimmedServer = server.trim();
-
+    // Open the broker WebView to verify credentials against the real
+    // terminal. The WebView's auth handler will flip connected:true only
+    // if the broker actually accepts the login, and connected:false on
+    // rejection — matching tradeport's behaviour. Previously this method
+    // set connected:true immediately without verification.
     if (activeTab === 'MT5') {
-      setMT5Account({
-        login: trimmedLogin,
-        password: trimmedPassword,
-        server: trimmedServer,
-        connected: true,
-      });
-      setMTAccount({
-        type: 'MT5',
-        login: trimmedLogin,
-        server: trimmedServer,
-        connected: true,
-      });
-      Alert.alert('MT5 Account Linked', `Account ${trimmedLogin} on ${trimmedServer} saved successfully. Connection will be verified when you place a trade.`);
+      handleMT5WebView();
     } else {
-      setMT4Account({
-        login: trimmedLogin,
-        password: trimmedPassword,
-        server: trimmedServer,
-        connected: true,
-      });
-      setMTAccount({
-        type: 'MT4',
-        login: trimmedLogin,
-        server: trimmedServer,
-        connected: true,
-      });
-      Alert.alert('MT4 Account Linked', `Account ${trimmedLogin} on ${trimmedServer} saved successfully. Connection will be verified when you place a trade.`);
+      handleMT4WebView();
     }
   };
 
