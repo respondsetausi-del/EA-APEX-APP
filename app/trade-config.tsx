@@ -17,7 +17,7 @@ export default function TradeConfigScreen() {
   
   const [config, setConfig] = useState<TradeConfig>({
     lotSize: '0.01',
-    direction: 'BUY',
+    direction: 'BOTH',
     platform: 'MT5',
     numberOfTrades: '1'
   });
@@ -71,11 +71,13 @@ export default function TradeConfigScreen() {
         return;
       }
       
-      // Reset to defaults if no config found
+      // Reset to defaults if no config found. Direction always locks to
+      // BOTH — the trade direction now comes from the signal / scanner,
+      // not from a per-symbol preset.
       setConfig(prev => ({
         ...prev,
         lotSize: '0.01',
-        direction: 'BUY',
+        direction: 'BOTH',
         platform: 'MT5',
         numberOfTrades: '1'
       }));
@@ -85,7 +87,6 @@ export default function TradeConfigScreen() {
     loadInitialConfig();
   }, [symbol, mt4Symbols, mt5Symbols, legacySymbolConfig]);
   
-  const [showDirectionModal, setShowDirectionModal] = useState(false);
   const [showPlatformModal, setShowPlatformModal] = useState(false);
 
   const handleBack = () => {
@@ -151,14 +152,14 @@ export default function TradeConfigScreen() {
       // If platform is being changed, load existing config for that platform
       if (key === 'platform' && symbol) {
         const targetPlatform = value as 'MT4' | 'MT5';
-        
+
         if (targetPlatform === 'MT4') {
           const mt4Config = mt4Symbols.find(s => s.symbol === symbol);
           if (mt4Config) {
             return {
               ...newConfig,
               lotSize: mt4Config.lotSize,
-              direction: mt4Config.direction,
+              direction: 'BOTH',
               numberOfTrades: mt4Config.numberOfTrades
             };
           }
@@ -168,17 +169,17 @@ export default function TradeConfigScreen() {
             return {
               ...newConfig,
               lotSize: mt5Config.lotSize,
-              direction: mt5Config.direction,
+              direction: 'BOTH',
               numberOfTrades: mt5Config.numberOfTrades
             };
           }
         }
-        
+
         // If no config found for target platform, use defaults
         return {
           ...newConfig,
           lotSize: '0.01',
-          direction: 'BUY',
+          direction: 'BOTH',
           numberOfTrades: '1'
         };
       }
@@ -222,18 +223,6 @@ export default function TradeConfigScreen() {
             placeholder="0.01"
             placeholderTextColor={glowColor + '33'}
           />
-        </View>
-
-        {/* Direction */}
-        <View style={styles.configSection}>
-          <Text style={[styles.sectionTitle, { color: glowColor + '80' }]}>DIRECTION</Text>
-          <TouchableOpacity 
-            style={[styles.picker, { borderColor: glowColor + '50' }]}
-            onPress={() => setShowDirectionModal(true)}
-          >
-            <Text style={styles.pickerText}>{config.direction}</Text>
-            <ChevronDown color={glowColor} size={20} />
-          </TouchableOpacity>
         </View>
 
         {/* Platform */}
@@ -280,45 +269,6 @@ export default function TradeConfigScreen() {
         </View>
       </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* Direction Modal */}
-      <Modal
-        visible={showDirectionModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowDirectionModal(false)}
-      >
-        <Pressable 
-          style={styles.modalOverlay}
-          onPress={() => setShowDirectionModal(false)}
-        >
-          <View style={[styles.modalContent, { borderColor: glowColor + '50', borderWidth: 1 },
-            Platform.OS === 'web' ? { boxShadow: `0 0 10px 2px ${glowColor}60` } as any : {}
-          ]}>
-            <Text style={[styles.modalTitle, { color: glowColor }]}>Select Direction</Text>
-            {['BUY', 'SELL', 'BOTH'].map((direction) => (
-              <TouchableOpacity
-                key={direction}
-                style={[
-                  styles.modalOption,
-                  config.direction === direction && { backgroundColor: glowColor + '20', borderColor: glowColor + '60' }
-                ]}
-                onPress={() => {
-                  updateConfig('direction', direction as 'BUY' | 'SELL' | 'BOTH');
-                  setShowDirectionModal(false);
-                }}
-              >
-                <Text style={[
-                  styles.modalOptionText,
-                  config.direction === direction && { color: glowColor }
-                ]}>
-                  {direction}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
 
       {/* Platform Modal */}
       <Modal
