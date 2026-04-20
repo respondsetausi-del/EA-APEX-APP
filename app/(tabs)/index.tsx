@@ -547,8 +547,8 @@ export default function HomeScreen() {
   // ─── Shared render helpers ──────────────────────────────────────────
   const webGlow = (color: string, intense?: boolean) => Platform.OS === 'web' ? {
     boxShadow: intense
-      ? `0 0 8px 2px ${color}80, 0 0 24px 6px ${color}33`
-      : `0 0 6px 1px ${color}80, 0 0 18px 4px ${color}33`,
+      ? `0 0 12px 3px ${color}99, 0 0 32px 8px ${color}40`
+      : `0 0 9px 2px ${color}99, 0 0 24px 6px ${color}40`,
   } as any : {};
 
   // mm:ss formatter for the signal countdown.
@@ -1656,7 +1656,7 @@ const styles = StyleSheet.create({
   statsCard: {
     backgroundColor: '#080D1A',
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
@@ -1810,12 +1810,12 @@ const styles = StyleSheet.create({
     height: 56,
     paddingHorizontal: 20,
     marginBottom: 12,
-    borderWidth: 1,
+    borderWidth: 1.75,
     gap: 12,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
+    elevation: 10,
   },
   eaAvatarBox: {
     width: 36,
@@ -1873,12 +1873,12 @@ const styles = StyleSheet.create({
     height: 56,
     paddingHorizontal: 24,
     marginBottom: 20,
-    borderWidth: 1,
+    borderWidth: 1.75,
     gap: 14,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
+    elevation: 10,
   },
   addEATextContainer: {
     flexDirection: 'column' as const,
@@ -1970,7 +1970,7 @@ const styles = StyleSheet.create({
   },
   scannerDropzone: {
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderStyle: 'dashed',
     backgroundColor: '#080D1A',
     minHeight: 260,
@@ -2028,12 +2028,12 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: 28,
-    borderWidth: 1,
+    borderWidth: 1.5,
     backgroundColor: '#080D1A',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
+    elevation: 10,
   },
   scannerPrimaryText: {
     fontSize: 13,
@@ -2054,7 +2054,7 @@ const styles = StyleSheet.create({
   scannerResultBox: {
     padding: 16,
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     backgroundColor: '#080D1A',
     gap: 12,
   },
