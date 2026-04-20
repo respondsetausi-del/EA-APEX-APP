@@ -11,7 +11,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp, Palette, Sliders, Video as VideoIcon, Bot } from 'lucide-react-native';
+import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp, Palette, Sliders, Video as VideoIcon, Bot, Scan, Plus, EyeOff } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { VOICE_HELP } from './voice-command';
 import { THEME_PRESETS } from '@/constants/themes';
@@ -20,6 +20,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.75, 280);
 
 const GLOW_PRESETS = [
+  // Core neon palette
   '#00BFFF', // cyan (default)
   '#A855F7', // purple
   '#00FF88', // green
@@ -27,6 +28,14 @@ const GLOW_PRESETS = [
   '#FF6B00', // orange
   '#FFD700', // gold
   '#FF00FF', // magenta
+  // Restored + new entries — richer coverage for different themes
+  '#EF4444', // red
+  '#3B82F6', // electric blue
+  '#14B8A6', // teal
+  '#84CC16', // lime
+  '#00FFCC', // aqua
+  '#EC4899', // hot pink
+  '#FFFFFF', // white
 ];
 
 const VIDEO_PRESETS = [
@@ -61,6 +70,10 @@ interface SidebarDrawerProps {
   onLayoutStyleChange?: (style: string) => void;
   scannerStyle?: string;
   onScannerStyleChange?: (style: string) => void;
+  heroHidden?: boolean;
+  onToggleHeroHidden?: (hidden: boolean) => void;
+  onOpenScanner?: () => void;
+  onAddNewEA?: () => void;
   chatVisible?: boolean;
   onToggleChatVisible?: (visible: boolean) => void;
 }
@@ -108,6 +121,10 @@ export function SidebarDrawer({
   onLayoutStyleChange,
   scannerStyle = 'K',
   onScannerStyleChange,
+  heroHidden = false,
+  onToggleHeroHidden,
+  onOpenScanner,
+  onAddNewEA,
   chatVisible = true,
   onToggleChatVisible,
 }: SidebarDrawerProps) {
@@ -253,6 +270,29 @@ export function SidebarDrawer({
           })}
         </View>
 
+        {/* Quick actions — lets the user reach these without cluttering
+            the home screen, especially when the hero is hidden. */}
+        {onOpenScanner && (
+          <TouchableOpacity
+            style={styles.navItem}
+            activeOpacity={0.7}
+            onPress={() => { onOpenScanner(); onClose(); }}
+          >
+            <Scan color={glowColor} size={20} />
+            <Text style={[styles.navLabel, { color: glowColor, textShadowColor: glowColor + '80', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 }]}>Chart Scanner</Text>
+          </TouchableOpacity>
+        )}
+        {onAddNewEA && (
+          <TouchableOpacity
+            style={styles.navItem}
+            activeOpacity={0.7}
+            onPress={() => { onAddNewEA(); onClose(); }}
+          >
+            <Plus color={glowColor} size={20} />
+            <Text style={[styles.navLabel, { color: glowColor, textShadowColor: glowColor + '80', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 }]}>Add New EA</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Info link */}
         <TouchableOpacity style={styles.navItem} activeOpacity={0.7} onPress={onClose}>
           <Info color="rgba(255,255,255,0.5)" size={20} />
@@ -327,6 +367,28 @@ export function SidebarDrawer({
               </View>
               <View style={[styles.toggleTrack, { backgroundColor: showHeroAvatar ? (hasVideo ? glowColor + '60' : glowColor) : 'rgba(255,255,255,0.15)' }]}>
                 <View style={[styles.toggleThumb, { transform: [{ translateX: showHeroAvatar ? 14 : 0 }] }]} />
+              </View>
+            </TouchableOpacity>
+
+            {/* Hero Image Toggle — hides the tall 9:16 hero + moves the
+                EA card, scanner, and Add EA action into this sidebar so
+                the robot background becomes the standout visual. */}
+            <TouchableOpacity
+              style={styles.toggleRow}
+              activeOpacity={0.7}
+              onPress={() => onToggleHeroHidden?.(!heroHidden)}
+            >
+              <View style={{ flexDirection: 'column', flex: 1, paddingRight: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <EyeOff color={heroHidden ? glowColor : 'rgba(255,255,255,0.5)'} size={14} />
+                  <Text style={styles.toggleLabel}>Hide Hero Image</Text>
+                </View>
+                <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, marginTop: 2 }}>
+                  Shows robot backdrop only
+                </Text>
+              </View>
+              <View style={[styles.toggleTrack, { backgroundColor: heroHidden ? glowColor : 'rgba(255,255,255,0.15)' }]}>
+                <View style={[styles.toggleThumb, { transform: [{ translateX: heroHidden ? 14 : 0 }] }]} />
               </View>
             </TouchableOpacity>
 

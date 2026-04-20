@@ -121,6 +121,10 @@ interface AppState {
   setLayoutStyle: (style: string) => void;
   scannerStyle: string;
   setScannerStyle: (style: string) => void;
+  heroHidden: boolean;
+  setHeroHidden: (hidden: boolean) => void;
+  scannerOpenRequest: number;
+  requestOpenScanner: () => void;
   chatVisible: boolean;
   setChatVisible: (visible: boolean) => void;
   setUser: (user: User) => void;
@@ -175,6 +179,13 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [voiceStyle, setVoiceStyleState] = useState<string>('A');
   const [layoutStyle, setLayoutStyleState] = useState<string>('1');
   const [scannerStyle, setScannerStyleState] = useState<string>('F');
+  // Hides the tall 9:16 hero on the home screen; cards move to the sidebar
+  // and the robot backdrop becomes the standout visual.
+  const [heroHidden, setHeroHiddenState] = useState<boolean>(false);
+  // Bumps whenever the sidebar asks the home screen to open the scanner
+  // modal — keeps the scanner triggerable from anywhere without navigation
+  // params.
+  const [scannerOpenRequest, setScannerOpenRequest] = useState<number>(0);
   const [chatVisible, setChatVisibleState] = useState<boolean>(true);
 
   // Load persisted data on mount
@@ -187,7 +198,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       console.log('Loading persisted data...');
 
       // Load all data in parallel but handle each independently
-      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData, scannerData, chatVisibleData] = await Promise.allSettled([
+      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData, scannerData, heroHiddenData, chatVisibleData] = await Promise.allSettled([
         AsyncStorage.getItem('user'),
         AsyncStorage.getItem('eas'),
         AsyncStorage.getItem('mtAccount'),
@@ -205,6 +216,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         AsyncStorage.getItem('voiceStyle'),
         AsyncStorage.getItem('layoutStyle'),
         AsyncStorage.getItem('scannerStyle'),
+        AsyncStorage.getItem('heroHidden'),
         AsyncStorage.getItem('chatVisible')
       ]);
 
@@ -436,6 +448,14 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       }
       if (scannerData.status === 'fulfilled' && scannerData.value) {
         setScannerStyleState(scannerData.value);
+      }
+      if (heroHiddenData.status === 'fulfilled' && heroHiddenData.value !== null) {
+        try {
+          const parsed = JSON.parse(heroHiddenData.value);
+          if (typeof parsed === 'boolean') setHeroHiddenState(parsed);
+        } catch (e) {
+          console.error('Error parsing heroHidden setting:', e);
+        }
       }
       if (chatVisibleData.status === 'fulfilled' && chatVisibleData.value !== null) {
         try {
@@ -1002,6 +1022,15 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     try { await AsyncStorage.setItem('scannerStyle', style); } catch (e) { console.error('Error saving scannerStyle:', e); }
   }, []);
 
+  const setHeroHidden = useCallback(async (hidden: boolean) => {
+    setHeroHiddenState(hidden);
+    try { await AsyncStorage.setItem('heroHidden', JSON.stringify(hidden)); } catch (e) { console.error('Error saving heroHidden:', e); }
+  }, []);
+
+  const requestOpenScanner = useCallback(() => {
+    setScannerOpenRequest(c => c + 1);
+  }, []);
+
   const setChatVisible = useCallback(async (visible: boolean) => {
     setChatVisibleState(visible);
     try { await AsyncStorage.setItem('chatVisible', JSON.stringify(visible)); } catch (e) { console.error('Error saving chatVisible:', e); }
@@ -1224,6 +1253,10 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setLayoutStyle,
     scannerStyle,
     setScannerStyle,
+    heroHidden,
+    setHeroHidden,
+    scannerOpenRequest,
+    requestOpenScanner,
     chatVisible,
     setChatVisible,
     setUser,
@@ -1249,5 +1282,5 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setTradingSignal: setTradingSignalCallback,
     setShowTradingWebView: setShowTradingWebViewCallback,
     placeManualTrade,
-  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, manualTradeRequest, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, chatVisible, setChatVisible, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback, placeManualTrade]);
+  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, manualTradeRequest, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, scannerOpenRequest, requestOpenScanner, chatVisible, setChatVisible, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback, placeManualTrade]);
 });
