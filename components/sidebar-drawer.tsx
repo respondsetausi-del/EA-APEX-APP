@@ -11,7 +11,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp, Palette, Sliders, Video as VideoIcon } from 'lucide-react-native';
+import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp, Palette, Sliders, Video as VideoIcon, Bot } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { VOICE_HELP } from './voice-command';
 import { THEME_PRESETS } from '@/constants/themes';
@@ -61,6 +61,8 @@ interface SidebarDrawerProps {
   onLayoutStyleChange?: (style: string) => void;
   scannerStyle?: string;
   onScannerStyleChange?: (style: string) => void;
+  chatVisible?: boolean;
+  onToggleChatVisible?: (visible: boolean) => void;
 }
 
 const STYLE_OPTIONS = [
@@ -106,6 +108,8 @@ export function SidebarDrawer({
   onLayoutStyleChange,
   scannerStyle = 'K',
   onScannerStyleChange,
+  chatVisible = true,
+  onToggleChatVisible,
 }: SidebarDrawerProps) {
   const slideAnim = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
@@ -323,6 +327,21 @@ export function SidebarDrawer({
               </View>
               <View style={[styles.toggleTrack, { backgroundColor: showHeroAvatar ? (hasVideo ? glowColor + '60' : glowColor) : 'rgba(255,255,255,0.15)' }]}>
                 <View style={[styles.toggleThumb, { transform: [{ translateX: showHeroAvatar ? 14 : 0 }] }]} />
+              </View>
+            </TouchableOpacity>
+
+            {/* Trade Assistant (chat bot) toggle */}
+            <TouchableOpacity
+              style={styles.toggleRow}
+              activeOpacity={0.7}
+              onPress={() => onToggleChatVisible?.(!chatVisible)}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Bot color={chatVisible ? glowColor : 'rgba(255,255,255,0.5)'} size={14} />
+                <Text style={styles.toggleLabel}>Trade Assistant</Text>
+              </View>
+              <View style={[styles.toggleTrack, { backgroundColor: chatVisible ? glowColor : 'rgba(255,255,255,0.15)' }]}>
+                <View style={[styles.toggleThumb, { transform: [{ translateX: chatVisible ? 14 : 0 }] }]} />
               </View>
             </TouchableOpacity>
 
