@@ -506,46 +506,55 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                   if (loginButton) {
                     loginButton.click();
                     sendMessage('step_update', 'Connecting to Server...');
-                    await new Promise(r => setTimeout(r, 8000)); // Optimized wait time
                   }
-                  
-                  // Wait for the terminal to fully load after login
+
+                  // Poll for full terminal readiness instead of a fixed 14s wait.
+                  // Brokers commonly take 20–40s from login to fully-drawn terminal.
+                  // We require TWO overlapping ready signals (order button + any data
+                  // signal, or search field + any data signal) so we don't fire into
+                  // a half-rendered UI. Falls back to a hard 60s cap — beyond that we
+                  // surface an error instead of trying to trade blind.
                   sendMessage('step_update', 'Loading terminal interface...');
-                  await new Promise(r => setTimeout(r, 4000));
-                  
-                  // RELAXED AUTHENTICATION VALIDATION - Check if terminal is accessible
-                  sendMessage('step_update', 'Verifying terminal access...');
-                  await new Promise(r => setTimeout(r, 2000));
-                  
-                  // Check multiple indicators of successful authentication
-                  const searchField = document.querySelector('input[placeholder="Search symbol"]');
-                  const createOrderButton = Array.from(document.querySelectorAll('button')).find(btn => 
-                    (btn.textContent || '').toLowerCase().includes('create') && 
-                    (btn.textContent || '').toLowerCase().includes('order')
-                  );
-                  const balanceText = document.body.innerText.includes('Balance:') || 
-                                     document.body.innerText.includes('Equity:') ||
-                                     document.body.innerText.includes('Free margin:');
-                  const hasSymbolList = document.querySelectorAll('[class*="symbol"]').length > 0 ||
-                                       document.querySelectorAll('td').length > 5;
-                  
-                  console.log('MT5 Authentication Check:', {
-                    hasSearchField: !!searchField,
-                    hasCreateOrderButton: !!createOrderButton,
-                    hasBalanceText: balanceText,
-                    hasSymbolList: hasSymbolList
-                  });
-                  
-                  // If any of these indicators are present, authentication was successful
-                  if (searchField || createOrderButton || balanceText || hasSymbolList) {
-                    console.log('MT5 Authentication successful - terminal is accessible');
-                    sendMessage('authentication_success', 'Logged in (search=' + !!searchField + ', order=' + !!createOrderButton + ', balance=' + balanceText + ', symbols=' + hasSymbolList + ')');
-                    
+                  const TERM_READY_TIMEOUT_MS = 60000;
+                  const TERM_POLL_MS = 500;
+                  let termReady = null;
+                  const termStart = Date.now();
+                  while (Date.now() - termStart < TERM_READY_TIMEOUT_MS) {
+                    await new Promise(r => setTimeout(r, TERM_POLL_MS));
+                    const sf = document.querySelector('input[placeholder="Search symbol"]');
+                    const ob = Array.from(document.querySelectorAll('button')).find(btn =>
+                      (btn.textContent || '').toLowerCase().includes('create') &&
+                      (btn.textContent || '').toLowerCase().includes('order')
+                    );
+                    const bal = document.body.innerText.includes('Balance:') ||
+                                document.body.innerText.includes('Equity:') ||
+                                document.body.innerText.includes('Free margin:');
+                    const syms = document.querySelectorAll('[class*="symbol"]').length > 0 ||
+                                 document.querySelectorAll('td').length > 5;
+                    const ready = (!!sf && !!ob) || (!!sf && (bal || syms)) || (!!ob && (bal || syms));
+                    if (ready) {
+                      termReady = { sf: !!sf, ob: !!ob, bal: bal, syms: syms };
+                      break;
+                    }
+                    const elapsed = Math.round((Date.now() - termStart) / 1000);
+                    if (elapsed % 5 === 0) {
+                      sendMessage('step_update', 'Loading terminal... (' + elapsed + 's)');
+                    }
+                  }
+
+                  console.log('MT5 Terminal readiness check:', termReady);
+
+                  if (termReady) {
+                    console.log('MT5 Authentication successful - terminal is fully ready');
+                    sendMessage('authentication_success', 'Logged in (search=' + termReady.sf + ', order=' + termReady.ob + ', balance=' + termReady.bal + ', symbols=' + termReady.syms + ')');
+
+                    // Small settle so the final DOM state is consistent before
+                    // the first trade runs.
+                    await new Promise(r => setTimeout(r, 800));
+
                     // If this is a trading request, proceed with trading immediately
                     ${isTradingRequest ? `
-                    setTimeout(() => {
-                      executeTrading();
-                    }, 2000);
+                    executeTrading();
                     ` : ''}
 
                     // Register listener for on-demand trades from the parent frame.
@@ -569,41 +578,66 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                               var _count = parseInt(cmd.count) || 1;
                               var _botname = cmd.botname || '${botname}';
 
+                              // Poll for an element every 60ms up to maxMs, then return whatever
+                              // the selector produces (element or null). Replaces the conservative
+                              // fixed setTimeout waits so we move on the instant the DOM is ready.
+                              function waitFor(selectorFn, maxMs) {
+                                return new Promise(function(resolve) {
+                                  var start = Date.now();
+                                  var hit = selectorFn();
+                                  if (hit) { resolve(hit); return; }
+                                  var iv = setInterval(function() {
+                                    var el = selectorFn();
+                                    if (el || Date.now() - start >= maxMs) {
+                                      clearInterval(iv);
+                                      resolve(el || null);
+                                    }
+                                  }, 60);
+                                });
+                              }
+
                               sendMessage('step', 'Executing ' + _count + ' ' + _action + ' trade(s) on ' + _asset + '...');
                               for (var ti = 0; ti < _count; ti++) {
                                 var tnum = ti + 1;
-                                sendMessage('step', 'Trade ' + tnum + ' of ' + _count + ': searching ' + _asset + '...');
 
-                                // Search symbol
-                                var sf = document.querySelector('input[placeholder="Search symbol"]') ||
-                                         document.querySelector('input[placeholder*="Search"]');
-                                if (sf) {
-                                  sf.focus(); sf.select(); sf.value = ''; sf.value = _asset;
-                                  sf.dispatchEvent(new Event('input', { bubbles: true }));
-                                  sf.dispatchEvent(new Event('change', { bubbles: true }));
-                                  sf.dispatchEvent(new Event('keyup', { bubbles: true }));
-                                }
-                                await new Promise(function(r){ setTimeout(r, 1500); });
+                                // Only search + select the symbol on the first trade of a batch.
+                                // After that it stays the active chart, so subsequent iterations
+                                // can jump straight to opening a fresh order dialog — saves ~3s
+                                // per trade from the second one onward.
+                                if (ti === 0) {
+                                  sendMessage('step', 'Trade ' + tnum + ' of ' + _count + ': searching ' + _asset + '...');
 
-                                // Select symbol
-                                var found = false;
-                                var candidates = document.querySelectorAll('.name.svelte-19bwscl .symbol.svelte-19bwscl, .symbol.svelte-19bwscl, [class*="symbol"]');
-                                for (var ci = 0; ci < candidates.length; ci++) {
-                                  var txt = (candidates[ci].innerText || '').trim();
-                                  if (txt === _asset || txt.includes(_asset)) { candidates[ci].click(); found = true; break; }
-                                }
-                                if (!found) {
-                                  var all = document.querySelectorAll('*');
-                                  for (var ai = 0; ai < all.length; ai++) {
-                                    if ((all[ai].textContent||'').trim() === _asset) {
-                                      var cl = all[ai].closest('button, [role="button"], td, tr');
-                                      if (cl) { cl.click(); found = true; break; }
+                                  // Search symbol
+                                  var sf = document.querySelector('input[placeholder="Search symbol"]') ||
+                                           document.querySelector('input[placeholder*="Search"]');
+                                  if (sf) {
+                                    sf.focus(); sf.select(); sf.value = ''; sf.value = _asset;
+                                    sf.dispatchEvent(new Event('input', { bubbles: true }));
+                                    sf.dispatchEvent(new Event('change', { bubbles: true }));
+                                    sf.dispatchEvent(new Event('keyup', { bubbles: true }));
+                                  }
+                                  await waitFor(function(){ return document.querySelector('.symbol.svelte-19bwscl'); }, 1500);
+
+                                  // Select symbol
+                                  var found = false;
+                                  var candidates = document.querySelectorAll('.name.svelte-19bwscl .symbol.svelte-19bwscl, .symbol.svelte-19bwscl, [class*="symbol"]');
+                                  for (var ci = 0; ci < candidates.length; ci++) {
+                                    var txt = (candidates[ci].innerText || '').trim();
+                                    if (txt === _asset || txt.includes(_asset)) { candidates[ci].click(); found = true; break; }
+                                  }
+                                  if (!found) {
+                                    var all = document.querySelectorAll('*');
+                                    for (var ai = 0; ai < all.length; ai++) {
+                                      if ((all[ai].textContent||'').trim() === _asset) {
+                                        var cl = all[ai].closest('button, [role="button"], td, tr');
+                                        if (cl) { cl.click(); found = true; break; }
+                                      }
                                     }
                                   }
+                                  await waitFor(function(){ return document.querySelector('.icon-button.withText span.button-text'); }, 1500);
                                 }
-                                sendMessage('step', 'Trade ' + tnum + ': opening order dialog...');
-                                await new Promise(function(r){ setTimeout(r, 1500); });
 
+                                sendMessage('step', 'Trade ' + tnum + ': opening order dialog...');
                                 // Open order dialog
                                 var orderBtn = document.querySelector('.icon-button.withText span.button-text');
                                 if (orderBtn) { orderBtn.click(); }
@@ -614,7 +648,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                                     if (bt.includes('create') && bt.includes('order')) { btns[bi].click(); break; }
                                   }
                                 }
-                                await new Promise(function(r){ setTimeout(r, 1500); });
+                                await waitFor(function(){ return document.querySelector('.trade-input input[type="text"]'); }, 1500);
 
                                 // Set volume
                                 sendMessage('step', 'Trade ' + tnum + ': setting params (Vol:' + _volume + ')...');
@@ -625,7 +659,6 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                                   volField.dispatchEvent(new Event('change', { bubbles: true }));
                                   volField.dispatchEvent(new Event('blur', { bubbles: true }));
                                 }
-                                await new Promise(function(r){ setTimeout(r, 500); });
 
                                 // Set SL
                                 if (_sl && _sl !== '0' && _sl !== '') {
@@ -640,7 +673,8 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                                 // Set comment
                                 var cmtField = document.querySelector('.input.svelte-mtorg2 input[type="text"]') || document.querySelector('.input.svelte-1d8k9kk input[type="text"]');
                                 if (cmtField) { cmtField.focus(); cmtField.value = ''; cmtField.value = _botname; cmtField.dispatchEvent(new Event('input',{bubbles:true})); cmtField.dispatchEvent(new Event('change',{bubbles:true})); }
-                                await new Promise(function(r){ setTimeout(r, 800); });
+                                // Brief settle so the terminal registers the value changes.
+                                await new Promise(function(r){ setTimeout(r, 200); });
 
                                 // Execute order
                                 sendMessage('step', 'Trade ' + tnum + ': placing ' + _action + ' order...');
@@ -656,7 +690,17 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                                   }
                                 }
                                 if (exBtn) { exBtn.click(); }
-                                await new Promise(function(r){ setTimeout(r, 2000); });
+                                // Wait for the confirmation dialog instead of a flat 2s sleep.
+                                await waitFor(function(){
+                                  var b = document.querySelector('.trade-button.svelte-16cwwe0');
+                                  if (b) return b;
+                                  var cbs = document.querySelectorAll('button');
+                                  for (var i = 0; i < cbs.length; i++) {
+                                    var t = (cbs[i].textContent||'').toLowerCase();
+                                    if (t.includes('ok') || t.includes('confirm')) return cbs[i];
+                                  }
+                                  return null;
+                                }, 2000);
 
                                 // Confirm
                                 var cfmBtn = document.querySelector('.trade-button.svelte-16cwwe0');
@@ -669,15 +713,19 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                                 }
                                 if (cfmBtn) { cfmBtn.click(); }
                                 sendMessage('step', 'Trade ' + tnum + ' of ' + _count + ' placed!');
-                                await new Promise(function(r){ setTimeout(r, 2000); });
+                                // Brief settle so the terminal accepts the order before the next round.
+                                await new Promise(function(r){ setTimeout(r, 500); });
 
-                                // Close dialogs
-                                var closeBtns = document.querySelectorAll('button');
-                                for (var di = 0; di < closeBtns.length; di++) {
-                                  var dbt = (closeBtns[di].textContent||'').toLowerCase();
-                                  if (dbt.includes('close') || dbt === 'x') { closeBtns[di].click(); break; }
+                                // Close dialogs (keep ONLY for the final trade — leaving them open
+                                // between trades lets iteration 2+ re-open the order dialog faster).
+                                if (ti === _count - 1) {
+                                  var closeBtns = document.querySelectorAll('button');
+                                  for (var di = 0; di < closeBtns.length; di++) {
+                                    var dbt = (closeBtns[di].textContent||'').toLowerCase();
+                                    if (dbt.includes('close') || dbt === 'x') { closeBtns[di].click(); break; }
+                                  }
+                                  await new Promise(function(r){ setTimeout(r, 300); });
                                 }
-                                await new Promise(function(r){ setTimeout(r, 1000); });
                               }
                               sendMessage('trade_executed', 'All ' + _count + ' ' + _action + ' trade(s) on ' + _asset + ' completed');
                             } catch(err) {

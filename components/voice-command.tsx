@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Animated } from 'react-native';
 import { Mic, MicOff, X } from 'lucide-react-native';
 import { router } from 'expo-router';
+import { parseCommand, describeOrder, hasAllRequired, type ParsedOrder } from '@/utils/trade-command-parser';
+import { useApp } from '@/providers/app-provider';
 
 interface VoiceCommandPillProps {
   variant?: string;
@@ -72,6 +74,7 @@ export function VoiceCommandPill({
   onSetGlowColor, onToggleAvatar,
   eaName = 'EA', eaCount = 0, activeSymbolCount = 0,
 }: VoiceCommandPillProps) {
+  const { placeManualTrade } = useApp();
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -80,6 +83,10 @@ export function VoiceCommandPill({
   const feedbackTimer = useRef<NodeJS.Timeout | null>(null);
   const wantActiveRef = useRef(false);
   const restartTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Default trade envelope if the user omits lot/count. Matches the chat widget.
+  const VOICE_DEFAULT_LOT = 0.01;
+  const VOICE_DEFAULT_COUNT = 1;
 
   const bar1 = useRef(new Animated.Value(8)).current;
   const bar2 = useRef(new Animated.Value(14)).current;
@@ -223,10 +230,50 @@ export function VoiceCommandPill({
         }
       }
     }
+    // Built-in regex commands didn't match. Fall back to the full trade
+    // parser so traders can say things like "buy 2 lots of gold stop at
+    // 1950 target at 1980" and have the order fire without opening the
+    // chat widget.
+    const parsed = parseCommand(text);
+    if (parsed.kind === 'order' && hasAllRequired(parsed.order)) {
+      const order: ParsedOrder = parsed.order;
+      const summary = describeOrder(order, { lot: VOICE_DEFAULT_LOT, count: VOICE_DEFAULT_COUNT });
+      const result = placeManualTrade({
+        symbol: order.symbol as string,
+        action: order.action as 'BUY' | 'SELL',
+        lot: order.lot ?? VOICE_DEFAULT_LOT,
+        count: order.count ?? VOICE_DEFAULT_COUNT,
+        slPrice: order.slPrice,
+        tpPrice: order.tpPrice,
+      });
+      if (result.ok) {
+        spoken = `Placed: ${summary}`;
+        showFeedback(`✓ ${summary}`);
+      } else {
+        spoken = `Could not place trade: ${result.error ?? 'unknown error'}`;
+        showFeedback(`⚠️ ${result.error ?? 'Trade failed'}`);
+      }
+      await speak(spoken);
+      return;
+    }
+    if (parsed.kind === 'ambiguous' && parsed.candidates && parsed.candidates.length > 0) {
+      spoken = `Which pair — ${parsed.candidates.slice(0, 3).join(', ')}?`;
+      showFeedback(spoken);
+      await speak(spoken);
+      return;
+    }
+    if (parsed.missing.length > 0 && (parsed.order.action || parsed.order.symbol)) {
+      const need = parsed.missing[0] === 'action' ? 'buy or sell' : 'which symbol';
+      spoken = `Almost — tell me ${need}.`;
+      showFeedback(spoken);
+      await speak(spoken);
+      return;
+    }
+
     spoken = `${text}. Command not recognized`;
     showFeedback(`"${text}" — not recognized`);
     await speak(spoken);
-  }, [isBotActive, onToggleBot, onRemoveEA, onAddEA, onSetGlowColor, onToggleAvatar, eaName, eaCount, activeSymbolCount, showFeedback]);
+  }, [isBotActive, onToggleBot, onRemoveEA, onAddEA, onSetGlowColor, onToggleAvatar, eaName, eaCount, activeSymbolCount, showFeedback, placeManualTrade]);
 
   const toggleListening = useCallback(() => {
     if (!supported) {

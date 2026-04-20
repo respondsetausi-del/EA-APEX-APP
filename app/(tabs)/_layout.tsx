@@ -8,7 +8,7 @@ import { SidebarDrawer } from "@/components/sidebar-drawer";
 import { NotificationToast } from "@/components/notification-toast";
 
 export default function TabLayout() {
-  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, requestOpenScanner, newSignal, dismissNewSignal } = useApp();
+  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, requestOpenScanner, chatVisible, setChatVisible, newSignal, dismissNewSignal } = useApp();
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
@@ -92,6 +92,8 @@ export default function TabLayout() {
           requestOpenScanner();
         }}
         onAddNewEA={() => router.push('/license')}
+        chatVisible={chatVisible}
+        onToggleChatVisible={setChatVisible}
       />
     </View>
   );

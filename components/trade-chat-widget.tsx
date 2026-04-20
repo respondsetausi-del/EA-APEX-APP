@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
   Platform,
   Modal,
   Animated,
+  PanResponder,
+  Dimensions,
 } from 'react-native';
-import { MessageCircle, Send, X, Mic, MicOff } from 'lucide-react-native';
+import { Bot, Send, X, Mic, MicOff } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   parseCommand,
@@ -73,7 +75,7 @@ export function TradeChatWidget({
   defaultLot = 0.01,
   defaultCount = 1,
 }: TradeChatWidgetProps) {
-  const { placeManualTrade } = useApp();
+  const { placeManualTrade, chatVisible } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
   const [historyHydrated, setHistoryHydrated] = useState(false);
@@ -89,6 +91,76 @@ export function TradeChatWidget({
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const pulse = useRef(new Animated.Value(1)).current;
   const micPulse = useRef(new Animated.Value(1)).current;
+
+  // ── Draggable FAB ────────────────────────────────────────────────
+  // The assistant button floats anywhere on the screen — users drag it
+  // to park it out of the way, then tap to open the chat. Position is
+  // persisted so it sticks across app launches.
+  const FAB_SIZE = 56;
+  const FAB_POS_KEY = '@trade_chat_fab_pos_v1';
+  const defaultFabPos = useMemo(() => {
+    const { width, height } = Dimensions.get('window');
+    return { x: Math.max(0, width - FAB_SIZE - 20), y: Math.max(0, height - FAB_SIZE - 120) };
+  }, []);
+  const fabPos = useRef(new Animated.ValueXY(defaultFabPos)).current;
+  const fabPosRef = useRef({ ...defaultFabPos });
+
+  useEffect(() => {
+    const id = fabPos.addListener(({ x, y }) => { fabPosRef.current = { x, y }; });
+    return () => { fabPos.removeListener(id); };
+  }, [fabPos]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(FAB_POS_KEY).then(raw => {
+      if (!raw) return;
+      try {
+        const p = JSON.parse(raw);
+        const { width, height } = Dimensions.get('window');
+        if (typeof p?.x === 'number' && typeof p?.y === 'number') {
+          const x = Math.max(8, Math.min(width - FAB_SIZE - 8, p.x));
+          const y = Math.max(40, Math.min(height - FAB_SIZE - 40, p.y));
+          fabPos.setValue({ x, y });
+        }
+      } catch {}
+    }).catch(() => {});
+  }, [fabPos]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, g) => Math.hypot(g.dx, g.dy) > 2,
+      onPanResponderGrant: () => {
+        fabPos.extractOffset();
+      },
+      onPanResponderMove: Animated.event(
+        [null, { dx: fabPos.x, dy: fabPos.y }],
+        { useNativeDriver: false }
+      ),
+      onPanResponderRelease: (_, g) => {
+        fabPos.flattenOffset();
+        const moved = Math.hypot(g.dx, g.dy);
+        const { width, height } = Dimensions.get('window');
+        const clampedX = Math.max(8, Math.min(width - FAB_SIZE - 8, fabPosRef.current.x));
+        const clampedY = Math.max(40, Math.min(height - FAB_SIZE - 40, fabPosRef.current.y));
+        if (clampedX !== fabPosRef.current.x || clampedY !== fabPosRef.current.y) {
+          Animated.spring(fabPos, {
+            toValue: { x: clampedX, y: clampedY },
+            useNativeDriver: false,
+            friction: 7,
+          }).start();
+        }
+        if (moved < 6) {
+          // Treat as a tap — open the chat sheet.
+          setIsOpen(true);
+        } else {
+          AsyncStorage.setItem(FAB_POS_KEY, JSON.stringify({ x: clampedX, y: clampedY })).catch(() => {});
+        }
+      },
+      onPanResponderTerminate: () => {
+        fabPos.flattenOffset();
+      },
+    })
+  ).current;
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -211,10 +283,6 @@ export function TradeChatWidget({
       resolveCard(cardId, 'confirmed');
       const summary = describeOrder(order, { lot: defaultLot, count: defaultCount });
 
-      const pipsDropped: string[] = [];
-      if (order.slPips !== undefined) pipsDropped.push('SL');
-      if (order.tpPips !== undefined) pipsDropped.push('TP');
-
       const result = placeManualTrade({
         symbol: order.symbol,
         action: order.action,
@@ -230,11 +298,8 @@ export function TradeChatWidget({
       } else {
         // Single collapsed status line — the preset bubble already shows the
         // inline "✓ Sent" state, so we don't repeat "Sent to MT5: ..." here.
-        const parts = [`✅ Sent · ${summary} · ${result.platform}`];
-        if (pipsDropped.length > 0) {
-          parts.push(`ℹ️ ${pipsDropped.join(' & ')} in pips not supported yet — sent without.`);
-        }
-        appendBot(parts.join('\n'));
+        // Pip-based SL/TP are silently dropped (we only support price-based).
+        appendBot(`✅ Sent · ${summary} · ${result.platform}`);
         console.log('[chat] placeManualTrade dispatched to', result.platform);
       }
       setConvo({ phase: 'idle' });
@@ -518,16 +583,26 @@ export function TradeChatWidget({
     [glowColor, defaultCount, defaultLot, onConfirm, onCancel]
   );
 
+  // Sidebar toggle hides the widget entirely.
+  if (!chatVisible) return null;
+
   return (
     <>
       {!isOpen && (
         <Animated.View
-          style={[styles.fabWrap, { transform: [{ scale: pulse }] }]}
-          pointerEvents="box-none"
+          {...panResponder.panHandlers}
+          style={[
+            styles.fabWrap,
+            {
+              transform: [
+                { translateX: fabPos.x },
+                { translateY: fabPos.y },
+                { scale: pulse },
+              ],
+            },
+          ]}
         >
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => setIsOpen(true)}
+          <View
             style={[
               styles.fab,
               {
@@ -539,8 +614,8 @@ export function TradeChatWidget({
             ]}
             testID="trade-chat-fab"
           >
-            <MessageCircle color={glowColor} size={24} />
-          </TouchableOpacity>
+            <Bot color={glowColor} size={26} strokeWidth={2.2} />
+          </View>
         </Animated.View>
       )}
 
@@ -871,8 +946,8 @@ function ConfirmCard({ message, glowColor, defaultLot, defaultCount, onConfirm, 
 const styles = StyleSheet.create({
   fabWrap: {
     position: 'absolute',
-    right: 20,
-    bottom: 90,
+    top: 0,
+    left: 0,
     zIndex: 100,
   },
   fab: {
