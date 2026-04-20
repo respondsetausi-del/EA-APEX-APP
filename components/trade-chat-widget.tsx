@@ -211,10 +211,6 @@ export function TradeChatWidget({
       resolveCard(cardId, 'confirmed');
       const summary = describeOrder(order, { lot: defaultLot, count: defaultCount });
 
-      const pipsDropped: string[] = [];
-      if (order.slPips !== undefined) pipsDropped.push('SL');
-      if (order.tpPips !== undefined) pipsDropped.push('TP');
-
       const result = placeManualTrade({
         symbol: order.symbol,
         action: order.action,
@@ -230,11 +226,8 @@ export function TradeChatWidget({
       } else {
         // Single collapsed status line — the preset bubble already shows the
         // inline "✓ Sent" state, so we don't repeat "Sent to MT5: ..." here.
-        const parts = [`✅ Sent · ${summary} · ${result.platform}`];
-        if (pipsDropped.length > 0) {
-          parts.push(`ℹ️ ${pipsDropped.join(' & ')} in pips not supported yet — sent without.`);
-        }
-        appendBot(parts.join('\n'));
+        // Pip-based SL/TP are silently dropped (we only support price-based).
+        appendBot(`✅ Sent · ${summary} · ${result.platform}`);
         console.log('[chat] placeManualTrade dispatched to', result.platform);
       }
       setConvo({ phase: 'idle' });

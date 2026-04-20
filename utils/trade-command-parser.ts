@@ -105,8 +105,10 @@ const LOT_RX = [
   /\bsize\s+(\d+(?:\.\d+)?)/i,
 ];
 
-const SL_RX = /\b(?:sl|stop(?:\s*loss)?)\s+(\d+(?:\.\d+)?)\s*(pips?|points?)?/i;
-const TP_RX = /\b(?:tp|take(?:\s*profit)?|target)\s+(\d+(?:\.\d+)?)\s*(pips?|points?)?/i;
+// Accepts "sl 1.0850", "stop loss 50 pips", "stop at 1.0850", "risk 30 pips".
+const SL_RX = /\b(?:sl|stop(?:\s*loss)?|stop\s+at|risk)\s+(\d+(?:\.\d+)?)\s*(pips?|points?)?/i;
+// Accepts "tp 1.0900", "take profit 100 pips", "target at 1.0900", "aim 80 pips".
+const TP_RX = /\b(?:tp|take(?:\s*profit)?|target(?:\s+at)?|aim)\s+(\d+(?:\.\d+)?)\s*(pips?|points?)?/i;
 
 const PIPS_THRESHOLD = 1000;
 
@@ -364,7 +366,8 @@ export const HELP_TEXT = [
   'Examples:',
   '• "buy gold" → BUY XAUUSD × 1',
   '• "sell EURUSD 3 trades"',
-  '• "long BTCUSD 0.05 lots sl 200 tp 500"',
-  '• "buy nasdaq x5"',
+  '• "long BTCUSD 0.05 lots stop at 40000 target at 45000"',
+  '• "short EURUSD 2 lots sl 1.0850 tp 1.0700"',
+  '• "buy nasdaq x5 risk 50 pips aim 150 pips"',
   'Say "confirm" to place or "cancel" to abort.',
 ].join('\n');
