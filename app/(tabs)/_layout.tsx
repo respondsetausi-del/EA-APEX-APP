@@ -8,7 +8,20 @@ import { SidebarDrawer } from "@/components/sidebar-drawer";
 import { NotificationToast } from "@/components/notification-toast";
 
 export default function TabLayout() {
-  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, requestOpenScanner, chatVisible, setChatVisible, newSignal, dismissNewSignal } = useApp();
+  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, requestOpenScanner, chatVisible, setChatVisible, autoTradeEnabled, setAutoTradeEnabled, warmTerminalSession, mt4Account, mt5Account, isHydrated, newSignal, dismissNewSignal } = useApp();
+
+  // Pre-warm the broker terminal on app open. As soon as hydration is
+  // done and we know there are credentials to inject, fire a silent
+  // login so the first real trade doesn't have to wait for the whole
+  // login handshake.
+  useEffect(() => {
+    if (!isHydrated) return;
+    const hasMt4 = !!(mt4Account?.login && mt4Account?.password && mt4Account?.server);
+    const hasMt5 = !!(mt5Account?.login && mt5Account?.password && mt5Account?.server);
+    if (!hasMt4 && !hasMt5) return;
+    const t = setTimeout(() => { warmTerminalSession(); }, 1200);
+    return () => clearTimeout(t);
+  }, [isHydrated, mt4Account, mt5Account, warmTerminalSession]);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
@@ -94,6 +107,8 @@ export default function TabLayout() {
         onAddNewEA={() => router.push('/license')}
         chatVisible={chatVisible}
         onToggleChatVisible={setChatVisible}
+        autoTradeEnabled={autoTradeEnabled}
+        onToggleAutoTrade={setAutoTradeEnabled}
       />
     </View>
   );

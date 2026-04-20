@@ -11,7 +11,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp, Palette, Sliders, Video as VideoIcon, Bot, Scan, Plus, EyeOff } from 'lucide-react-native';
+import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp, Palette, Sliders, Video as VideoIcon, Bot, Scan, Plus, EyeOff, Zap } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { VOICE_HELP } from './voice-command';
 import { THEME_PRESETS } from '@/constants/themes';
@@ -76,6 +76,8 @@ interface SidebarDrawerProps {
   onAddNewEA?: () => void;
   chatVisible?: boolean;
   onToggleChatVisible?: (visible: boolean) => void;
+  autoTradeEnabled?: boolean;
+  onToggleAutoTrade?: (enabled: boolean) => void;
 }
 
 const STYLE_OPTIONS = [
@@ -127,6 +129,8 @@ export function SidebarDrawer({
   onAddNewEA,
   chatVisible = true,
   onToggleChatVisible,
+  autoTradeEnabled = false,
+  onToggleAutoTrade,
 }: SidebarDrawerProps) {
   const slideAnim = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
@@ -404,6 +408,27 @@ export function SidebarDrawer({
               </View>
               <View style={[styles.toggleTrack, { backgroundColor: chatVisible ? glowColor : 'rgba(255,255,255,0.15)' }]}>
                 <View style={[styles.toggleThumb, { transform: [{ translateX: chatVisible ? 14 : 0 }] }]} />
+              </View>
+            </TouchableOpacity>
+
+            {/* Auto-Trade toggle — when ON, scanner + chat skip the confirm
+                step and fire trades immediately. */}
+            <TouchableOpacity
+              style={styles.toggleRow}
+              activeOpacity={0.7}
+              onPress={() => onToggleAutoTrade?.(!autoTradeEnabled)}
+            >
+              <View style={{ flexDirection: 'column', flex: 1, paddingRight: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Zap color={autoTradeEnabled ? glowColor : 'rgba(255,255,255,0.5)'} size={14} />
+                  <Text style={styles.toggleLabel}>Auto-Trade</Text>
+                </View>
+                <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, marginTop: 2 }}>
+                  Skip confirm — fire scanner & chat instantly
+                </Text>
+              </View>
+              <View style={[styles.toggleTrack, { backgroundColor: autoTradeEnabled ? glowColor : 'rgba(255,255,255,0.15)' }]}>
+                <View style={[styles.toggleThumb, { transform: [{ translateX: autoTradeEnabled ? 14 : 0 }] }]} />
               </View>
             </TouchableOpacity>
 

@@ -23,7 +23,7 @@ import { useApp } from '@/providers/app-provider';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle, heroHidden, scannerOpenRequest } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle, heroHidden, scannerOpenRequest, autoTradeEnabled } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -77,6 +77,7 @@ export default function HomeScreen() {
   const [tradeError, setTradeError] = useState<string | null>(null);
 
   const SCAN_HISTORY_KEY = 'scanHistory.v1';
+  const SCAN_SYMBOL_KEY = 'scanLastSymbol.v1';
   const SIGNAL_TTL_MS = 15 * 60 * 1000;
 
   // Each scan holds the revealed result for a random 10–20s so the phase
@@ -97,16 +98,21 @@ export default function HomeScreen() {
     }
   }, [scannerOpenRequest]);
 
-  // Hydrate history once.
+  // Hydrate history + last-picked scan symbol once.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(SCAN_HISTORY_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (!cancelled && Array.isArray(parsed)) {
-          setScanHistory(parsed.slice(0, 10));
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (!cancelled && Array.isArray(parsed)) {
+            setScanHistory(parsed.slice(0, 10));
+          }
+        }
+        const lastSym = await AsyncStorage.getItem(SCAN_SYMBOL_KEY);
+        if (!cancelled && lastSym) {
+          setTradeSymbol(lastSym.trim().toUpperCase());
         }
       } catch {}
     })();
@@ -312,22 +318,69 @@ export default function HomeScreen() {
   const hasMt4Account = !!(mt4Account?.login && mt4Account?.password && mt4Account?.server);
   const hasMt5Account = !!(mt5Account?.login && mt5Account?.password && mt5Account?.server);
 
+  // Look up a symbol's configured lot / count / platform across the three
+  // stores (MT5 first, then MT4, then legacy). Returns undefined if the
+  // symbol isn't configured anywhere.
+  const lookupSymbolConfig = useCallback((sym: string) => {
+    if (!sym) return undefined;
+    const up = sym.trim().toUpperCase();
+    const m5 = (mt5Symbols || []).find(s => s.symbol.toUpperCase() === up);
+    if (m5) return { lot: m5.lotSize, count: m5.numberOfTrades, platform: 'MT5' as const };
+    const m4 = (mt4Symbols || []).find(s => s.symbol.toUpperCase() === up);
+    if (m4) return { lot: m4.lotSize, count: m4.numberOfTrades, platform: 'MT4' as const };
+    const leg = (activeSymbols || []).find(s => s.symbol.toUpperCase() === up);
+    if (leg) return { lot: leg.lotSize, count: leg.numberOfTrades, platform: leg.platform };
+    return undefined;
+  }, [activeSymbols, mt4Symbols, mt5Symbols]);
+
   // Pick a sensible default platform: prefer an already-configured account.
+  // When a symbol is picked, its saved lot / count / platform are used as
+  // the starting values. When Auto-Trade is on and we have a valid setup,
+  // the trade fires immediately without opening the confirm sheet.
   const openTradePrompt = useCallback(() => {
     if (!insights || (insights.signal.action !== 'BUY' && insights.signal.action !== 'SELL')) return;
     setTradeError(null);
-    setTradeSymbol(prev => prev || (quickPickSymbols[0] || ''));
-    setTradeLot(prev => prev || '0.01');
-    setTradeCount(prev => prev || '1');
-    setTradePlatform(prev => {
-      if (prev === 'MT4' && hasMt4Account) return 'MT4';
-      if (prev === 'MT5' && hasMt5Account) return 'MT5';
-      if (hasMt5Account) return 'MT5';
-      if (hasMt4Account) return 'MT4';
-      return prev;
-    });
+    const nextSymbol = (tradeSymbol || quickPickSymbols[0] || '').trim().toUpperCase();
+    const cfg = lookupSymbolConfig(nextSymbol);
+    const nextLot = cfg?.lot || tradeLot || '0.01';
+    const nextCount = cfg?.count || tradeCount || '1';
+    const nextPlatform: 'MT4' | 'MT5' =
+      cfg?.platform === 'MT4' && hasMt4Account ? 'MT4'
+      : cfg?.platform === 'MT5' && hasMt5Account ? 'MT5'
+      : tradePlatform === 'MT4' && hasMt4Account ? 'MT4'
+      : tradePlatform === 'MT5' && hasMt5Account ? 'MT5'
+      : hasMt5Account ? 'MT5'
+      : hasMt4Account ? 'MT4'
+      : tradePlatform;
+    setTradeSymbol(nextSymbol);
+    setTradeLot(nextLot);
+    setTradeCount(nextCount);
+    setTradePlatform(nextPlatform);
+
+    // Auto-Trade mode — if we have enough to fire, do it without opening
+    // the confirm sub-modal. Falls back to the sheet when a symbol isn't
+    // picked yet or the lot is invalid.
+    if (autoTradeEnabled && nextSymbol && parseFloat(nextLot) > 0) {
+      const count = parseInt(nextCount, 10);
+      const lot = parseFloat(nextLot);
+      if (isFinite(count) && count >= 1 && count <= 50 && isFinite(lot) && lot > 0) {
+        const result = placeManualTrade({
+          symbol: nextSymbol,
+          action: insights.signal.action,
+          lot,
+          count,
+          platform: nextPlatform,
+        });
+        if (result.ok) {
+          setSynapseOpen(false);
+          resetScanner();
+          return;
+        }
+        setTradeError(result.error || 'Could not place trade.');
+      }
+    }
     setTradePromptOpen(true);
-  }, [insights, quickPickSymbols, hasMt4Account, hasMt5Account]);
+  }, [insights, quickPickSymbols, hasMt4Account, hasMt5Account, tradeSymbol, tradeLot, tradeCount, tradePlatform, lookupSymbolConfig, autoTradeEnabled, placeManualTrade, resetScanner]);
 
   const handleExecuteTrade = useCallback(() => {
     if (!insights) return;
@@ -1173,6 +1226,69 @@ export default function HomeScreen() {
               Drop a chart screenshot. We read the candles on-device and call a BUY, SELL or WAIT with a live confidence score — no servers, no AI.
             </Text>
 
+            {/* ── Symbol picker ──────────────────────────────────────
+                Users pick once per scan so the trade prompt / auto-trade
+                know which symbol this chart is for. Last pick is
+                persisted across launches. */}
+            <View style={[styles.scannerSymbolPicker, { borderColor: glowColor + '44' }]}>
+              <Text style={[styles.scannerSymbolLabel, { color: glowColor }]}>SCANNING SYMBOL</Text>
+              <TextInput
+                value={tradeSymbol}
+                onChangeText={t => {
+                  const up = t.toUpperCase();
+                  setTradeSymbol(up);
+                  const cfg = lookupSymbolConfig(up);
+                  if (cfg) {
+                    setTradeLot(cfg.lot);
+                    setTradeCount(cfg.count);
+                    if (cfg.platform === 'MT4' && hasMt4Account) setTradePlatform('MT4');
+                    else if (cfg.platform === 'MT5' && hasMt5Account) setTradePlatform('MT5');
+                  }
+                  AsyncStorage.setItem(SCAN_SYMBOL_KEY, up).catch(() => {});
+                }}
+                placeholder="e.g. EURUSD"
+                placeholderTextColor="#4A5568"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                style={[styles.scannerSymbolInput, { borderColor: glowColor + '66' }]}
+              />
+              {quickPickSymbols.length > 0 && (
+                <View style={styles.scannerSymbolChipsRow}>
+                  {quickPickSymbols.map(sym => {
+                    const active = sym === tradeSymbol.trim().toUpperCase();
+                    return (
+                      <TouchableOpacity
+                        key={sym}
+                        onPress={() => {
+                          setTradeSymbol(sym);
+                          const cfg = lookupSymbolConfig(sym);
+                          if (cfg) {
+                            setTradeLot(cfg.lot);
+                            setTradeCount(cfg.count);
+                            if (cfg.platform === 'MT4' && hasMt4Account) setTradePlatform('MT4');
+                            else if (cfg.platform === 'MT5' && hasMt5Account) setTradePlatform('MT5');
+                          }
+                          AsyncStorage.setItem(SCAN_SYMBOL_KEY, sym).catch(() => {});
+                        }}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.scannerSymbolChip,
+                          {
+                            borderColor: active ? glowColor : glowColor + '44',
+                            backgroundColor: active ? glowColor + '26' : 'transparent',
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.scannerSymbolChipText, { color: active ? glowColor : glowColor + 'CC' }]}>
+                          {sym}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+
             {/* ── Scan history drawer ───────────────────────────────── */}
             {historyOpen && (
               <View style={[styles.scannerHistoryBox, { borderColor: glowColor + '66' }, webGlow(glowColor)]}>
@@ -1423,7 +1539,17 @@ export default function HomeScreen() {
                         return (
                           <TouchableOpacity
                             key={sym}
-                            onPress={() => { setTradeSymbol(sym); setTradeError(null); }}
+                            onPress={() => {
+                              setTradeSymbol(sym);
+                              setTradeError(null);
+                              const cfg = lookupSymbolConfig(sym);
+                              if (cfg) {
+                                setTradeLot(cfg.lot);
+                                setTradeCount(cfg.count);
+                                if (cfg.platform === 'MT4' && hasMt4Account) setTradePlatform('MT4');
+                                else if (cfg.platform === 'MT5' && hasMt5Account) setTradePlatform('MT5');
+                              }
+                            }}
                             activeOpacity={0.8}
                             style={[
                               styles.tradePromptChip,
@@ -2045,6 +2171,44 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     textAlign: 'center',
+  },
+  scannerSymbolPicker: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    gap: 8,
+    backgroundColor: 'rgba(8, 13, 26, 0.6)',
+  },
+  scannerSymbolLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+  },
+  scannerSymbolInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    backgroundColor: '#05090F',
+  },
+  scannerSymbolChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  scannerSymbolChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  scannerSymbolChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
   },
   scannerDropzone: {
     borderRadius: 16,

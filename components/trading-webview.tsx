@@ -34,7 +34,11 @@ interface TradeConfig {
 const KEEP_ALIVE_MS = 5 * 60 * 1000; // 5 minutes idle timeout
 
 export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps) {
-  const { activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, eas, manualTradeRequest } = useApp();
+  const { activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, eas, manualTradeRequest, terminalWarming, markSessionWarm } = useApp();
+  // Warmup mode hides the visible UI entirely — the invisible iframe
+  // still mounts and runs the login script so the terminal is ready
+  // when the user actually triggers a trade.
+  const isWarmup = terminalWarming && manualTradeRequest?.count === 0;
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [tradeExecuted, setTradeExecuted] = useState<boolean>(false);
@@ -1396,10 +1400,13 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           console.log('Trading success:', data.message);
           stopHeartbeat();
           if (data.message) setCurrentStep(data.message);
-          // Mark session as warm — ready for on-demand trades
+          // Mark session as warm — ready for on-demand trades. Also
+          // surface it to the provider so the tabs layout and FAB know
+          // not to trigger another warmup.
           if (tradeConfig?.platform) {
             setSessionWarm(true);
             setSessionPlatform(tradeConfig.platform);
+            markSessionWarm(tradeConfig.platform, true);
             resetKeepAliveTimer();
           }
           setLoading(false);
@@ -1614,8 +1621,9 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
 
   return (
     <>
-      {/* Compact Progress Toast */}
-      {visible && (
+      {/* Compact Progress Toast — skipped in warmup mode so the silent
+          pre-login doesn't flash a progress UI at the user. */}
+      {visible && !isWarmup && (
         <View style={[
           styles.toastContainer,
           {

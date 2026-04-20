@@ -127,6 +127,21 @@ interface AppState {
   requestOpenScanner: () => void;
   chatVisible: boolean;
   setChatVisible: (visible: boolean) => void;
+  /** When true, scanner and chat skip the confirm step and fire trades
+   *  immediately via placeManualTrade. Off by default. */
+  autoTradeEnabled: boolean;
+  setAutoTradeEnabled: (enabled: boolean) => void;
+  /** True while a silent warmup trade request is in flight (TradingWebView
+   *  is mounted in invisible mode to log in without placing any trade). */
+  terminalWarming: boolean;
+  /** Tracks whether each platform's terminal session is warm, so the FAB
+   *  and app-startup hook don't re-fire pointless warmups. */
+  mt4SessionWarm: boolean;
+  mt5SessionWarm: boolean;
+  markSessionWarm: (platform: 'MT4' | 'MT5', warm: boolean) => void;
+  /** Fire a credential-injection login for the given platform without
+   *  executing any trade. Returns true if a warmup was dispatched. */
+  warmTerminalSession: (platform?: 'MT4' | 'MT5') => boolean;
   setUser: (user: User) => void;
   addEA: (ea: EA) => Promise<boolean>;
   removeEA: (id: string) => Promise<boolean>;
@@ -187,6 +202,10 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   // params.
   const [scannerOpenRequest, setScannerOpenRequest] = useState<number>(0);
   const [chatVisible, setChatVisibleState] = useState<boolean>(true);
+  const [autoTradeEnabled, setAutoTradeEnabledState] = useState<boolean>(false);
+  const [terminalWarming, setTerminalWarming] = useState<boolean>(false);
+  const [mt4SessionWarm, setMt4SessionWarm] = useState<boolean>(false);
+  const [mt5SessionWarm, setMt5SessionWarm] = useState<boolean>(false);
 
   // Load persisted data on mount
   useEffect(() => {
@@ -198,7 +217,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       console.log('Loading persisted data...');
 
       // Load all data in parallel but handle each independently
-      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData, scannerData, heroHiddenData, chatVisibleData] = await Promise.allSettled([
+      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData, scannerData, heroHiddenData, chatVisibleData, autoTradeData] = await Promise.allSettled([
         AsyncStorage.getItem('user'),
         AsyncStorage.getItem('eas'),
         AsyncStorage.getItem('mtAccount'),
@@ -217,7 +236,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         AsyncStorage.getItem('layoutStyle'),
         AsyncStorage.getItem('scannerStyle'),
         AsyncStorage.getItem('heroHidden'),
-        AsyncStorage.getItem('chatVisible')
+        AsyncStorage.getItem('chatVisible'),
+        AsyncStorage.getItem('autoTradeEnabled')
       ]);
 
       // Handle user data
@@ -463,6 +483,14 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
           if (typeof parsed === 'boolean') setChatVisibleState(parsed);
         } catch (e) {
           console.error('Error parsing chatVisible setting:', e);
+        }
+      }
+      if (autoTradeData.status === 'fulfilled' && autoTradeData.value !== null) {
+        try {
+          const parsed = JSON.parse(autoTradeData.value);
+          if (typeof parsed === 'boolean') setAutoTradeEnabledState(parsed);
+        } catch (e) {
+          console.error('Error parsing autoTradeEnabled setting:', e);
         }
       }
 
@@ -1036,6 +1064,11 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     try { await AsyncStorage.setItem('chatVisible', JSON.stringify(visible)); } catch (e) { console.error('Error saving chatVisible:', e); }
   }, []);
 
+  const setAutoTradeEnabled = useCallback(async (enabled: boolean) => {
+    setAutoTradeEnabledState(enabled);
+    try { await AsyncStorage.setItem('autoTradeEnabled', JSON.stringify(enabled)); } catch (e) { console.error('Error saving autoTradeEnabled:', e); }
+  }, []);
+
   const startSignalsMonitoring = useCallback((phoneSecret: string) => {
     console.log('Starting signals monitoring with phone secret:', phoneSecret);
 
@@ -1181,6 +1214,63 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     return { ok: true, platform };
   }, [mt4Symbols, mt5Symbols, mt4Account, mt5Account]);
 
+  const markSessionWarm = useCallback((platform: 'MT4' | 'MT5', warm: boolean) => {
+    if (platform === 'MT4') setMt4SessionWarm(warm);
+    else setMt5SessionWarm(warm);
+    if (warm) setTerminalWarming(false);
+  }, []);
+
+  // Silent pre-warm: log in to the terminal and park it in keep-alive
+  // mode without placing any trade. Fires placeManualTrade with count=0
+  // and flips terminalWarming so the WebView mounts in invisible mode.
+  // Re-entry is a no-op while the session is already warm.
+  const warmTerminalSession = useCallback((platformArg?: 'MT4' | 'MT5'): boolean => {
+    const hasMt4 = !!(mt4Account?.login && mt4Account?.password && mt4Account?.server);
+    const hasMt5 = !!(mt5Account?.login && mt5Account?.password && mt5Account?.server);
+    const platform: 'MT4' | 'MT5' =
+      platformArg === 'MT4' && hasMt4 ? 'MT4'
+      : platformArg === 'MT5' && hasMt5 ? 'MT5'
+      : hasMt5 ? 'MT5'
+      : hasMt4 ? 'MT4'
+      : null as unknown as 'MT4' | 'MT5';
+    if (!platform) return false;
+    if (platform === 'MT4' && mt4SessionWarm) return false;
+    if (platform === 'MT5' && mt5SessionWarm) return false;
+
+    // Pick a configured symbol for the platform — anything that makes
+    // the terminal URL well-formed. Falls back to EURUSD if nothing is
+    // configured yet (the warmup still lands on the login screen).
+    const platformSymbols = platform === 'MT4' ? mt4Symbols : mt5Symbols;
+    const fallbackSymbol = platformSymbols[0]?.symbol || activeSymbols[0]?.symbol || 'EURUSD';
+    const fallbackLot = parseFloat(platformSymbols[0]?.lotSize || '0.01') || 0.01;
+
+    console.log('[warmTerminalSession] warming', platform, 'via', fallbackSymbol);
+    setTerminalWarming(true);
+
+    const manual: ManualTradeRequest = {
+      symbol: fallbackSymbol,
+      action: 'BUY',
+      lot: fallbackLot,
+      count: 0,
+      platform,
+    };
+    const synthetic: SignalLog = {
+      id: `warmup-${Date.now()}`,
+      asset: fallbackSymbol,
+      action: 'BUY',
+      price: '0',
+      tp: '',
+      sl: '',
+      time: new Date().toISOString(),
+      latestupdate: new Date().toISOString(),
+      receivedAt: new Date(),
+    };
+    setManualTradeRequest(manual);
+    setTradingSignal(synthetic);
+    setShowTradingWebView(true);
+    return true;
+  }, [mt4Account, mt5Account, mt4Symbols, mt5Symbols, activeSymbols, mt4SessionWarm, mt5SessionWarm]);
+
   // Initialize signals monitoring state on mount
   useEffect(() => {
     setIsSignalsMonitoring(signalsMonitor.isRunning());
@@ -1259,6 +1349,13 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     requestOpenScanner,
     chatVisible,
     setChatVisible,
+    autoTradeEnabled,
+    setAutoTradeEnabled,
+    terminalWarming,
+    mt4SessionWarm,
+    mt5SessionWarm,
+    markSessionWarm,
+    warmTerminalSession,
     setUser,
     addEA,
     removeEA,
@@ -1282,5 +1379,5 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setTradingSignal: setTradingSignalCallback,
     setShowTradingWebView: setShowTradingWebViewCallback,
     placeManualTrade,
-  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, manualTradeRequest, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, scannerOpenRequest, requestOpenScanner, chatVisible, setChatVisible, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback, placeManualTrade]);
+  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, manualTradeRequest, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, scannerOpenRequest, requestOpenScanner, chatVisible, setChatVisible, autoTradeEnabled, setAutoTradeEnabled, terminalWarming, mt4SessionWarm, mt5SessionWarm, markSessionWarm, warmTerminalSession, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback, placeManualTrade]);
 });
