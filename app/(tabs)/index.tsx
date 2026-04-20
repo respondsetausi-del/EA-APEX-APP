@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView, Modal, ActivityIndicator, Alert, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ImageBackground, Platform, Dimensions, SafeAreaView, Modal, ActivityIndicator, Alert, Animated, Easing, TextInput } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode } from 'expo-av';
 import * as Haptics from 'expo-haptics';
-import { Plus, TrendingUp, TrendingDown, Minus, X, Upload, Scan, RefreshCw, Clock, History, Trash2 } from 'lucide-react-native';
+import { Plus, TrendingUp, TrendingDown, Minus, X, Upload, Scan, RefreshCw, Clock, History, Trash2, Zap } from 'lucide-react-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { WebView } from 'react-native-webview';
@@ -23,7 +23,7 @@ import { useApp } from '@/providers/app-provider';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, panelStyle, voiceStyle, layoutStyle, scannerStyle } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -64,6 +64,17 @@ export default function HomeScreen() {
   };
   const [scanHistory, setScanHistory] = useState<ScanHistoryEntry[]>([]);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
+
+  // ── Scanner → Trade prompt state ────────────────────────────────────
+  // Shown as a sub-modal inside the scanner once a BUY/SELL signal lands.
+  // Direction is locked to the scanner's call; the user only picks the
+  // symbol, lot size, and how many trades to fire.
+  const [tradePromptOpen, setTradePromptOpen] = useState<boolean>(false);
+  const [tradeSymbol, setTradeSymbol] = useState<string>('');
+  const [tradeLot, setTradeLot] = useState<string>('0.01');
+  const [tradeCount, setTradeCount] = useState<string>('1');
+  const [tradePlatform, setTradePlatform] = useState<'MT4' | 'MT5'>('MT4');
+  const [tradeError, setTradeError] = useState<string | null>(null);
 
   const SCAN_HISTORY_KEY = 'scanHistory.v1';
   const SIGNAL_TTL_MS = 15 * 60 * 1000;
@@ -268,6 +279,84 @@ export default function HomeScreen() {
     const id = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
   }, [signalAt]);
+
+  // Union of symbols the user has already configured across storage stores —
+  // shown as quick-pick chips in the trade prompt so they don't have to retype.
+  const quickPickSymbols = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const push = (s?: string | null) => {
+      if (!s) return;
+      const up = s.trim().toUpperCase();
+      if (!up || seen.has(up)) return;
+      seen.add(up);
+      out.push(up);
+    };
+    (activeSymbols || []).forEach(s => push(s.symbol));
+    (mt4Symbols || []).forEach(s => push(s.symbol));
+    (mt5Symbols || []).forEach(s => push(s.symbol));
+    return out.slice(0, 12);
+  }, [activeSymbols, mt4Symbols, mt5Symbols]);
+
+  const hasMt4Account = !!(mt4Account?.login && mt4Account?.password && mt4Account?.server);
+  const hasMt5Account = !!(mt5Account?.login && mt5Account?.password && mt5Account?.server);
+
+  // Pick a sensible default platform: prefer an already-configured account.
+  const openTradePrompt = useCallback(() => {
+    if (!insights || (insights.signal.action !== 'BUY' && insights.signal.action !== 'SELL')) return;
+    setTradeError(null);
+    setTradeSymbol(prev => prev || (quickPickSymbols[0] || ''));
+    setTradeLot(prev => prev || '0.01');
+    setTradeCount(prev => prev || '1');
+    setTradePlatform(prev => {
+      if (prev === 'MT4' && hasMt4Account) return 'MT4';
+      if (prev === 'MT5' && hasMt5Account) return 'MT5';
+      if (hasMt5Account) return 'MT5';
+      if (hasMt4Account) return 'MT4';
+      return prev;
+    });
+    setTradePromptOpen(true);
+  }, [insights, quickPickSymbols, hasMt4Account, hasMt5Account]);
+
+  const handleExecuteTrade = useCallback(() => {
+    if (!insights) return;
+    const action = insights.signal.action;
+    if (action !== 'BUY' && action !== 'SELL') {
+      setTradeError('This signal is not tradeable.');
+      return;
+    }
+    const symbol = tradeSymbol.trim().toUpperCase();
+    if (!symbol) {
+      setTradeError('Enter a symbol to trade.');
+      return;
+    }
+    const lot = parseFloat(tradeLot);
+    if (!isFinite(lot) || lot <= 0) {
+      setTradeError('Lot size must be a positive number.');
+      return;
+    }
+    const count = parseInt(tradeCount, 10);
+    if (!isFinite(count) || count < 1 || count > 50) {
+      setTradeError('Number of trades must be between 1 and 50.');
+      return;
+    }
+    const result = placeManualTrade({
+      symbol,
+      action,
+      lot,
+      count,
+      platform: tradePlatform,
+    });
+    if (!result.ok) {
+      setTradeError(result.error || 'Could not place trade.');
+      return;
+    }
+    setTradeError(null);
+    setTradePromptOpen(false);
+    // Close the scanner modal so the trading WebView is unobstructed.
+    setSynapseOpen(false);
+    resetScanner();
+  }, [insights, tradeSymbol, tradeLot, tradeCount, tradePlatform, placeManualTrade, resetScanner]);
 
   // ── Tier 1 animations ────────────────────────────────────────────────
   // Pulsing glow on the signal card while a result is visible.
@@ -627,6 +716,26 @@ export default function HomeScreen() {
             </View>
           ))}
         </View>
+
+        {/* ── Trade-this-signal CTA ────────────────────────────────
+            Scanner calls a direction; offer to fire trades in that
+            direction without making the user leave the scanner. */}
+        {(data.signal.action === 'BUY' || data.signal.action === 'SELL') && (
+          <TouchableOpacity
+            onPress={openTradePrompt}
+            activeOpacity={0.85}
+            style={[
+              styles.scannerTradeCta,
+              { borderColor: signalColor, backgroundColor: signalColor + '1A', shadowColor: signalColor },
+              webGlow(signalColor, true),
+            ]}
+          >
+            <Zap color={signalColor} size={18} strokeWidth={2.5} />
+            <Text style={[styles.scannerTradeCtaText, { color: signalColor }]}>
+              TRADE {data.signal.action} SIGNAL
+            </Text>
+          </TouchableOpacity>
+        )}
 
         <Text style={styles.scannerDisclaimer}>
           Descriptive chart diagnostics only — not financial advice or a trade recommendation.
@@ -1171,6 +1280,175 @@ export default function HomeScreen() {
               style={styles.scannerHiddenWebView}
               pointerEvents="none"
             />
+          )}
+
+          {/* ── Trade prompt sub-modal ─────────────────────────────────
+              Opens when the user taps "TRADE <BUY|SELL> SIGNAL" under a
+              revealed scan. The scanner can't read the symbol off the
+              image, so we ask the user to confirm it (with quick picks
+              for symbols they've already configured) and how many trades
+              to fire. Direction is locked to the scan. */}
+          {insights && (insights.signal.action === 'BUY' || insights.signal.action === 'SELL') && (
+            <Modal
+              visible={tradePromptOpen}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setTradePromptOpen(false)}
+            >
+              <View style={styles.tradePromptBackdrop}>
+                <View style={[
+                  styles.tradePromptCard,
+                  { borderColor: glowColor + '66', shadowColor: glowColor },
+                  webGlow(glowColor, true),
+                ]}>
+                  <View style={styles.tradePromptHeader}>
+                    <Text style={[styles.tradePromptTitle, { color: glowColor }]}>CONFIRM TRADE</Text>
+                    <TouchableOpacity
+                      onPress={() => setTradePromptOpen(false)}
+                      activeOpacity={0.7}
+                      style={styles.tradePromptCloseBtn}
+                    >
+                      <X color={glowColor} size={20} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Direction badge — locked to what the scanner returned. */}
+                  {(() => {
+                    const action = insights.signal.action;
+                    const c = action === 'BUY' ? '#22C55E' : '#EF4444';
+                    const Icon = action === 'BUY' ? TrendingUp : TrendingDown;
+                    return (
+                      <View style={[styles.tradePromptDirection, { borderColor: c, backgroundColor: c + '1A' }]}>
+                        <Icon color={c} size={18} strokeWidth={2.5} />
+                        <Text style={[styles.tradePromptDirectionText, { color: c }]}>
+                          {action} {'\u2022'} {insights.signal.strength.toUpperCase()} {'\u2022'} {insights.confidence}% CONF
+                        </Text>
+                      </View>
+                    );
+                  })()}
+
+                  {/* Symbol */}
+                  <Text style={[styles.tradePromptLabel, { color: glowColor }]}>SYMBOL</Text>
+                  <TextInput
+                    value={tradeSymbol}
+                    onChangeText={t => { setTradeSymbol(t.toUpperCase()); setTradeError(null); }}
+                    placeholder="e.g. EURUSD"
+                    placeholderTextColor="#4A5568"
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    style={[styles.tradePromptInput, { borderColor: glowColor + '66', color: '#FFF' }]}
+                  />
+                  {quickPickSymbols.length > 0 && (
+                    <View style={styles.tradePromptChipsRow}>
+                      {quickPickSymbols.map(sym => {
+                        const active = sym === tradeSymbol.trim().toUpperCase();
+                        return (
+                          <TouchableOpacity
+                            key={sym}
+                            onPress={() => { setTradeSymbol(sym); setTradeError(null); }}
+                            activeOpacity={0.8}
+                            style={[
+                              styles.tradePromptChip,
+                              {
+                                borderColor: active ? glowColor : glowColor + '44',
+                                backgroundColor: active ? glowColor + '26' : 'transparent',
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.tradePromptChipText, { color: active ? glowColor : glowColor + 'CC' }]}>
+                              {sym}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* Lot + count row */}
+                  <View style={styles.tradePromptRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.tradePromptLabel, { color: glowColor }]}>LOT SIZE</Text>
+                      <TextInput
+                        value={tradeLot}
+                        onChangeText={t => { setTradeLot(t); setTradeError(null); }}
+                        keyboardType="decimal-pad"
+                        placeholder="0.01"
+                        placeholderTextColor="#4A5568"
+                        style={[styles.tradePromptInput, { borderColor: glowColor + '66', color: '#FFF' }]}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.tradePromptLabel, { color: glowColor }]}>NUMBER OF TRADES</Text>
+                      <TextInput
+                        value={tradeCount}
+                        onChangeText={t => { setTradeCount(t.replace(/[^0-9]/g, '')); setTradeError(null); }}
+                        keyboardType="number-pad"
+                        placeholder="1"
+                        placeholderTextColor="#4A5568"
+                        style={[styles.tradePromptInput, { borderColor: glowColor + '66', color: '#FFF' }]}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Platform toggle */}
+                  <Text style={[styles.tradePromptLabel, { color: glowColor }]}>PLATFORM</Text>
+                  <View style={styles.tradePromptPlatformRow}>
+                    {(['MT4', 'MT5'] as const).map(p => {
+                      const available = p === 'MT4' ? hasMt4Account : hasMt5Account;
+                      const active = tradePlatform === p;
+                      return (
+                        <TouchableOpacity
+                          key={p}
+                          onPress={() => { setTradePlatform(p); setTradeError(null); }}
+                          activeOpacity={0.8}
+                          disabled={!available}
+                          style={[
+                            styles.tradePromptPlatformBtn,
+                            {
+                              borderColor: active ? glowColor : glowColor + '44',
+                              backgroundColor: active ? glowColor + '26' : 'transparent',
+                              opacity: available ? 1 : 0.4,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.tradePromptPlatformText, { color: active ? glowColor : glowColor + 'CC' }]}>
+                            {p}{available ? '' : ' (not configured)'}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {tradeError && (
+                    <View style={[styles.tradePromptError, { borderColor: '#FF4D4D' }]}>
+                      <Text style={styles.tradePromptErrorText}>{tradeError}</Text>
+                    </View>
+                  )}
+
+                  <View style={styles.tradePromptActions}>
+                    <TouchableOpacity
+                      onPress={() => setTradePromptOpen(false)}
+                      activeOpacity={0.8}
+                      style={[styles.tradePromptSecondaryBtn, { borderColor: glowColor + '66' }]}
+                    >
+                      <Text style={[styles.tradePromptSecondaryText, { color: glowColor }]}>CANCEL</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={handleExecuteTrade}
+                      activeOpacity={0.85}
+                      style={[
+                        styles.tradePromptPrimaryBtn,
+                        { borderColor: glowColor, shadowColor: glowColor },
+                        webGlow(glowColor, true),
+                      ]}
+                    >
+                      <Zap color={glowColor} size={16} strokeWidth={2.5} />
+                      <Text style={[styles.tradePromptPrimaryText, { color: glowColor }]}>EXECUTE</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </Modal>
           )}
         </SafeAreaView>
       </Modal>
@@ -2045,6 +2323,175 @@ const styles = StyleSheet.create({
     left: -9999,
     top: -9999,
     backgroundColor: 'transparent',
+  },
+  scannerTradeCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    marginTop: 4,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  scannerTradeCtaText: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+  },
+  tradePromptBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  tradePromptCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#080D1A',
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 18,
+    gap: 10,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  tradePromptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  tradePromptTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  tradePromptCloseBtn: {
+    padding: 4,
+  },
+  tradePromptDirection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  tradePromptDirectionText: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+  },
+  tradePromptLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    marginTop: 4,
+  },
+  tradePromptInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    fontSize: 14,
+    fontWeight: '600',
+    backgroundColor: '#05090F',
+  },
+  tradePromptChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  tradePromptChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  tradePromptChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  tradePromptRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  tradePromptPlatformRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  tradePromptPlatformBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tradePromptPlatformText: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  tradePromptError: {
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255, 77, 77, 0.08)',
+  },
+  tradePromptErrorText: {
+    color: '#FF6B6B',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tradePromptActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+  },
+  tradePromptSecondaryBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#080D1A',
+  },
+  tradePromptSecondaryText: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+  },
+  tradePromptPrimaryBtn: {
+    flex: 1.2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    backgroundColor: '#080D1A',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  tradePromptPrimaryText: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1.4,
   },
 
 });
