@@ -75,7 +75,22 @@ export function TradeChatWidget({
   defaultLot = 0.01,
   defaultCount = 1,
 }: TradeChatWidgetProps) {
-  const { placeManualTrade, chatVisible } = useApp();
+  const { placeManualTrade, chatVisible, autoTradeEnabled, activeSymbols, mt4Symbols, mt5Symbols, warmTerminalSession } = useApp();
+
+  // Look up a symbol's saved lot / count across the three stores so
+  // voice/chat commands can fall back to per-symbol defaults when the
+  // user doesn't spell them out.
+  const lookupSymbolLot = useCallback((sym?: string): { lot?: number; count?: number } => {
+    if (!sym) return {};
+    const up = sym.trim().toUpperCase();
+    const m5 = (mt5Symbols || []).find(s => s.symbol.toUpperCase() === up);
+    if (m5) return { lot: parseFloat(m5.lotSize), count: parseInt(m5.numberOfTrades, 10) };
+    const m4 = (mt4Symbols || []).find(s => s.symbol.toUpperCase() === up);
+    if (m4) return { lot: parseFloat(m4.lotSize), count: parseInt(m4.numberOfTrades, 10) };
+    const leg = (activeSymbols || []).find(s => s.symbol.toUpperCase() === up);
+    if (leg) return { lot: parseFloat(leg.lotSize), count: parseInt(leg.numberOfTrades, 10) };
+    return {};
+  }, [activeSymbols, mt4Symbols, mt5Symbols]);
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
   const [historyHydrated, setHistoryHydrated] = useState(false);
@@ -125,6 +140,12 @@ export function TradeChatWidget({
     }).catch(() => {});
   }, [fabPos]);
 
+  // panResponder captures its deps at mount; warmTerminalSession is
+  // re-created by the provider as its internal state changes, so we
+  // route through a ref to always hit the latest function.
+  const warmRef = useRef(warmTerminalSession);
+  useEffect(() => { warmRef.current = warmTerminalSession; }, [warmTerminalSession]);
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -150,8 +171,11 @@ export function TradeChatWidget({
           }).start();
         }
         if (moved < 6) {
-          // Treat as a tap — open the chat sheet.
+          // Treat as a tap — open the chat sheet. Also fire a silent
+          // terminal warmup so the first trade issued from here doesn't
+          // wait for login.
           setIsOpen(true);
+          try { warmRef.current?.(); } catch {}
         } else {
           AsyncStorage.setItem(FAB_POS_KEY, JSON.stringify({ x: clampedX, y: clampedY })).catch(() => {});
         }
@@ -281,13 +305,18 @@ export function TradeChatWidget({
       }
       lastTradeAtRef.current = now;
       resolveCard(cardId, 'confirmed');
-      const summary = describeOrder(order, { lot: defaultLot, count: defaultCount });
+      // Fall back to the symbol's saved lot/count when the user didn't
+      // specify them in the command.
+      const saved = lookupSymbolLot(order.symbol);
+      const effectiveLot = order.lot ?? (saved.lot && saved.lot > 0 ? saved.lot : defaultLot);
+      const effectiveCount = order.count ?? (saved.count && saved.count >= 1 ? saved.count : defaultCount);
+      const summary = describeOrder({ ...order, lot: effectiveLot, count: effectiveCount }, { lot: defaultLot, count: defaultCount });
 
       const result = placeManualTrade({
         symbol: order.symbol,
         action: order.action,
-        lot: order.lot ?? defaultLot,
-        count: order.count ?? defaultCount,
+        lot: effectiveLot,
+        count: effectiveCount,
         slPrice: order.slPrice,
         tpPrice: order.tpPrice,
       });
@@ -304,7 +333,7 @@ export function TradeChatWidget({
       }
       setConvo({ phase: 'idle' });
     },
-    [appendBot, defaultCount, defaultLot, placeManualTrade, resolveCard]
+    [appendBot, defaultCount, defaultLot, placeManualTrade, resolveCard, lookupSymbolLot]
   );
 
   const onCancel = useCallback(
@@ -549,6 +578,23 @@ export function TradeChatWidget({
       if (relistenTimerRef.current) clearTimeout(relistenTimerRef.current);
     };
   }, [convo.phase, isListening, isOpen, startListening]);
+
+  // Auto-Trade: the moment a confirm-card lands in the chat, fire the
+  // trade ourselves instead of waiting for the user to tap "Send it".
+  // Still renders the card (now auto-resolved) so the user sees what
+  // was sent. If the user wants a review step, they toggle Auto-Trade
+  // off in the sidebar.
+  const autoFiredCardsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!autoTradeEnabled) return;
+    for (const m of messages) {
+      if (m.kind !== 'confirm-card' || m.resolved || !m.order) continue;
+      if (autoFiredCardsRef.current.has(m.id)) continue;
+      if (!hasAllRequired(m.order)) continue;
+      autoFiredCardsRef.current.add(m.id);
+      onConfirm(m.order, m.id);
+    }
+  }, [messages, autoTradeEnabled, onConfirm]);
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {
