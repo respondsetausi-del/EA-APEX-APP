@@ -23,7 +23,7 @@ import { useApp } from '@/providers/app-provider';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle, heroHidden, scannerOpenRequest } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -85,6 +85,17 @@ export default function HomeScreen() {
   const scanTargetMsRef = useRef<number>(0);
   const scanStartedAtRef = useRef<number>(0);
   const scanRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The sidebar (or any other screen) can request the scanner modal via
+  // app-provider. Each bump of the request counter opens it here — skip
+  // the initial mount value (0) so we don't open on first render.
+  const lastScannerReqRef = useRef<number>(scannerOpenRequest);
+  useEffect(() => {
+    if (scannerOpenRequest !== lastScannerReqRef.current) {
+      lastScannerReqRef.current = scannerOpenRequest;
+      setSynapseOpen(true);
+    }
+  }, [scannerOpenRequest]);
 
   // Hydrate history once.
   useEffect(() => {
@@ -547,8 +558,8 @@ export default function HomeScreen() {
   // ─── Shared render helpers ──────────────────────────────────────────
   const webGlow = (color: string, intense?: boolean) => Platform.OS === 'web' ? {
     boxShadow: intense
-      ? `0 0 8px 2px ${color}80, 0 0 24px 6px ${color}33`
-      : `0 0 6px 1px ${color}80, 0 0 18px 4px ${color}33`,
+      ? `0 0 12px 3px ${color}99, 0 0 32px 8px ${color}40`
+      : `0 0 9px 2px ${color}99, 0 0 24px 6px ${color}40`,
   } as any : {};
 
   // mm:ss formatter for the signal countdown.
@@ -1047,16 +1058,83 @@ export default function HomeScreen() {
     </>
   );
 
+  // ─── Minimal home (hero hidden) ────────────────────────────────────
+  // Triggered from the sidebar's "Hide Hero Image" toggle. The tall 9:16
+  // hero disappears so the robot backdrop stands out; the trading panel
+  // stays pinned at the bottom with the "Powered by EA Mobile Connect"
+  // strip above it, dissolving upward into the robot and downward into
+  // the panel.
+  const renderMinimalHome = () => (
+    <View style={styles.minimalRoot}>
+      {/* Robot backdrop — fills the whole screen behind everything. */}
+      <View style={styles.minimalBackdrop}>
+        <RobotLogo size={Math.min(width * 0.9, 440)} />
+      </View>
+
+      {/* Fade from the robot down into the brand strip. */}
+      <LinearGradient
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.95)']}
+        style={styles.minimalFadeTop}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        pointerEvents="none"
+      />
+
+      {/* Bottom stack: brand line → trading panel. */}
+      <View style={styles.minimalBottom} pointerEvents="box-none">
+        <View
+          style={[
+            styles.minimalBrand,
+            { borderColor: glowColor + '4D', shadowColor: glowColor },
+            webGlow(glowColor),
+          ]}
+        >
+          <Text style={[styles.minimalBrandText, { color: glowColor, textShadowColor: glowColor + '80' }]}>
+            POWERED BY EA MOBILE CONNECT
+          </Text>
+          <View style={[styles.minimalBrandLine, { backgroundColor: glowColor + '40' }]} />
+        </View>
+
+        {/* Fade from the brand line down into the trading panel. */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.7)', '#000000']}
+          style={styles.minimalFadeBottom}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          pointerEvents="none"
+        />
+
+        <View style={styles.minimalPanelWrap}>
+          {primaryEA ? renderTradingPanel() : (
+            <TouchableOpacity
+              style={[styles.addEAButton, { borderColor: glowColor + '99', shadowColor: glowColor }, webGlow(glowColor, true)]}
+              onPress={handleAddNewEA}
+              activeOpacity={0.85}
+            >
+              <Plus color={glowColor} size={20} />
+              <View style={styles.addEATextContainer}>
+                <Text style={[styles.addEATitle, { color: glowColor, textShadowColor: glowColor + '80' }]}>ADD A NEW EA</Text>
+                <Text style={[styles.addEASubtitle, { color: glowColor + '8C' }]}>HAVE A VALID LICENSE KEY</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+
   // ─── Main return ───────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {layoutStyle === '2' ? renderLayout2()
-         : layoutStyle === '3' ? renderLayout3()
-         : layoutStyle === '4' ? renderLayout4()
-         : layoutStyle === '5' ? renderLayout5()
-         : renderLayout1()}
-      </ScrollView>
+      {heroHidden ? renderMinimalHome() : (
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {layoutStyle === '2' ? renderLayout2()
+           : layoutStyle === '3' ? renderLayout3()
+           : layoutStyle === '4' ? renderLayout4()
+           : layoutStyle === '5' ? renderLayout5()
+           : renderLayout1()}
+        </ScrollView>
+      )}
 
       {/* Chart Scanner Upload Modal */}
       <Modal
@@ -1656,7 +1734,7 @@ const styles = StyleSheet.create({
   statsCard: {
     backgroundColor: '#080D1A',
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
@@ -1810,12 +1888,12 @@ const styles = StyleSheet.create({
     height: 56,
     paddingHorizontal: 20,
     marginBottom: 12,
-    borderWidth: 1,
+    borderWidth: 1.75,
     gap: 12,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
+    elevation: 10,
   },
   eaAvatarBox: {
     width: 36,
@@ -1873,12 +1951,12 @@ const styles = StyleSheet.create({
     height: 56,
     paddingHorizontal: 24,
     marginBottom: 20,
-    borderWidth: 1,
+    borderWidth: 1.75,
     gap: 14,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
+    elevation: 10,
   },
   addEATextContainer: {
     flexDirection: 'column' as const,
@@ -1970,7 +2048,7 @@ const styles = StyleSheet.create({
   },
   scannerDropzone: {
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderStyle: 'dashed',
     backgroundColor: '#080D1A',
     minHeight: 260,
@@ -2028,12 +2106,12 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: 28,
-    borderWidth: 1,
+    borderWidth: 1.5,
     backgroundColor: '#080D1A',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
+    elevation: 10,
   },
   scannerPrimaryText: {
     fontSize: 13,
@@ -2054,7 +2132,7 @@ const styles = StyleSheet.create({
   scannerResultBox: {
     padding: 16,
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     backgroundColor: '#080D1A',
     gap: 12,
   },
@@ -2323,6 +2401,68 @@ const styles = StyleSheet.create({
     left: -9999,
     top: -9999,
     backgroundColor: 'transparent',
+  },
+  minimalRoot: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  minimalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 200,
+  },
+  minimalFadeTop: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 220,
+    height: 120,
+  },
+  minimalBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 18,
+  },
+  minimalBrand: {
+    alignSelf: 'center',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    backgroundColor: 'rgba(8, 13, 26, 0.75)',
+    marginBottom: 6,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  minimalBrandText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 2.2,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+  },
+  minimalBrandLine: {
+    marginTop: 6,
+    width: 60,
+    height: 2,
+    borderRadius: 2,
+  },
+  minimalFadeBottom: {
+    height: 24,
+    marginHorizontal: 20,
+    marginBottom: -4,
+  },
+  minimalPanelWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
   },
   scannerTradeCta: {
     flexDirection: 'row',

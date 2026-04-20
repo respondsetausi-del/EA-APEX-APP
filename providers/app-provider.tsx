@@ -121,6 +121,10 @@ interface AppState {
   setLayoutStyle: (style: string) => void;
   scannerStyle: string;
   setScannerStyle: (style: string) => void;
+  heroHidden: boolean;
+  setHeroHidden: (hidden: boolean) => void;
+  scannerOpenRequest: number;
+  requestOpenScanner: () => void;
   setUser: (user: User) => void;
   addEA: (ea: EA) => Promise<boolean>;
   removeEA: (id: string) => Promise<boolean>;
@@ -173,6 +177,13 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [voiceStyle, setVoiceStyleState] = useState<string>('A');
   const [layoutStyle, setLayoutStyleState] = useState<string>('1');
   const [scannerStyle, setScannerStyleState] = useState<string>('F');
+  // Hides the tall 9:16 hero on the home screen; cards move to the sidebar
+  // and the robot backdrop becomes the standout visual.
+  const [heroHidden, setHeroHiddenState] = useState<boolean>(false);
+  // Bumps whenever the sidebar asks the home screen to open the scanner
+  // modal — keeps the scanner triggerable from anywhere without navigation
+  // params.
+  const [scannerOpenRequest, setScannerOpenRequest] = useState<number>(0);
 
   // Load persisted data on mount
   useEffect(() => {
@@ -184,7 +195,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       console.log('Loading persisted data...');
 
       // Load all data in parallel but handle each independently
-      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData, scannerData] = await Promise.allSettled([
+      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData, scannerData, heroHiddenData] = await Promise.allSettled([
         AsyncStorage.getItem('user'),
         AsyncStorage.getItem('eas'),
         AsyncStorage.getItem('mtAccount'),
@@ -201,7 +212,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         AsyncStorage.getItem('panelStyle'),
         AsyncStorage.getItem('voiceStyle'),
         AsyncStorage.getItem('layoutStyle'),
-        AsyncStorage.getItem('scannerStyle')
+        AsyncStorage.getItem('scannerStyle'),
+        AsyncStorage.getItem('heroHidden')
       ]);
 
       // Handle user data
@@ -432,6 +444,14 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       }
       if (scannerData.status === 'fulfilled' && scannerData.value) {
         setScannerStyleState(scannerData.value);
+      }
+      if (heroHiddenData.status === 'fulfilled' && heroHiddenData.value !== null) {
+        try {
+          const parsed = JSON.parse(heroHiddenData.value);
+          if (typeof parsed === 'boolean') setHeroHiddenState(parsed);
+        } catch (e) {
+          console.error('Error parsing heroHidden setting:', e);
+        }
       }
 
       console.log('Persisted data loading completed');
@@ -990,6 +1010,15 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     try { await AsyncStorage.setItem('scannerStyle', style); } catch (e) { console.error('Error saving scannerStyle:', e); }
   }, []);
 
+  const setHeroHidden = useCallback(async (hidden: boolean) => {
+    setHeroHiddenState(hidden);
+    try { await AsyncStorage.setItem('heroHidden', JSON.stringify(hidden)); } catch (e) { console.error('Error saving heroHidden:', e); }
+  }, []);
+
+  const requestOpenScanner = useCallback(() => {
+    setScannerOpenRequest(c => c + 1);
+  }, []);
+
   const startSignalsMonitoring = useCallback((phoneSecret: string) => {
     console.log('Starting signals monitoring with phone secret:', phoneSecret);
 
@@ -1207,6 +1236,10 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setLayoutStyle,
     scannerStyle,
     setScannerStyle,
+    heroHidden,
+    setHeroHidden,
+    scannerOpenRequest,
+    requestOpenScanner,
     setUser,
     addEA,
     removeEA,
@@ -1230,5 +1263,5 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setTradingSignal: setTradingSignalCallback,
     setShowTradingWebView: setShowTradingWebViewCallback,
     placeManualTrade,
-  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, manualTradeRequest, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback, placeManualTrade]);
+  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, manualTradeRequest, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, scannerOpenRequest, requestOpenScanner, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback, placeManualTrade]);
 });
