@@ -506,46 +506,55 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                   if (loginButton) {
                     loginButton.click();
                     sendMessage('step_update', 'Connecting to Server...');
-                    await new Promise(r => setTimeout(r, 8000)); // Optimized wait time
                   }
-                  
-                  // Wait for the terminal to fully load after login
+
+                  // Poll for full terminal readiness instead of a fixed 14s wait.
+                  // Brokers commonly take 20–40s from login to fully-drawn terminal.
+                  // We require TWO overlapping ready signals (order button + any data
+                  // signal, or search field + any data signal) so we don't fire into
+                  // a half-rendered UI. Falls back to a hard 60s cap — beyond that we
+                  // surface an error instead of trying to trade blind.
                   sendMessage('step_update', 'Loading terminal interface...');
-                  await new Promise(r => setTimeout(r, 4000));
-                  
-                  // RELAXED AUTHENTICATION VALIDATION - Check if terminal is accessible
-                  sendMessage('step_update', 'Verifying terminal access...');
-                  await new Promise(r => setTimeout(r, 2000));
-                  
-                  // Check multiple indicators of successful authentication
-                  const searchField = document.querySelector('input[placeholder="Search symbol"]');
-                  const createOrderButton = Array.from(document.querySelectorAll('button')).find(btn => 
-                    (btn.textContent || '').toLowerCase().includes('create') && 
-                    (btn.textContent || '').toLowerCase().includes('order')
-                  );
-                  const balanceText = document.body.innerText.includes('Balance:') || 
-                                     document.body.innerText.includes('Equity:') ||
-                                     document.body.innerText.includes('Free margin:');
-                  const hasSymbolList = document.querySelectorAll('[class*="symbol"]').length > 0 ||
-                                       document.querySelectorAll('td').length > 5;
-                  
-                  console.log('MT5 Authentication Check:', {
-                    hasSearchField: !!searchField,
-                    hasCreateOrderButton: !!createOrderButton,
-                    hasBalanceText: balanceText,
-                    hasSymbolList: hasSymbolList
-                  });
-                  
-                  // If any of these indicators are present, authentication was successful
-                  if (searchField || createOrderButton || balanceText || hasSymbolList) {
-                    console.log('MT5 Authentication successful - terminal is accessible');
-                    sendMessage('authentication_success', 'Logged in (search=' + !!searchField + ', order=' + !!createOrderButton + ', balance=' + balanceText + ', symbols=' + hasSymbolList + ')');
-                    
+                  const TERM_READY_TIMEOUT_MS = 60000;
+                  const TERM_POLL_MS = 500;
+                  let termReady = null;
+                  const termStart = Date.now();
+                  while (Date.now() - termStart < TERM_READY_TIMEOUT_MS) {
+                    await new Promise(r => setTimeout(r, TERM_POLL_MS));
+                    const sf = document.querySelector('input[placeholder="Search symbol"]');
+                    const ob = Array.from(document.querySelectorAll('button')).find(btn =>
+                      (btn.textContent || '').toLowerCase().includes('create') &&
+                      (btn.textContent || '').toLowerCase().includes('order')
+                    );
+                    const bal = document.body.innerText.includes('Balance:') ||
+                                document.body.innerText.includes('Equity:') ||
+                                document.body.innerText.includes('Free margin:');
+                    const syms = document.querySelectorAll('[class*="symbol"]').length > 0 ||
+                                 document.querySelectorAll('td').length > 5;
+                    const ready = (!!sf && !!ob) || (!!sf && (bal || syms)) || (!!ob && (bal || syms));
+                    if (ready) {
+                      termReady = { sf: !!sf, ob: !!ob, bal: bal, syms: syms };
+                      break;
+                    }
+                    const elapsed = Math.round((Date.now() - termStart) / 1000);
+                    if (elapsed % 5 === 0) {
+                      sendMessage('step_update', 'Loading terminal... (' + elapsed + 's)');
+                    }
+                  }
+
+                  console.log('MT5 Terminal readiness check:', termReady);
+
+                  if (termReady) {
+                    console.log('MT5 Authentication successful - terminal is fully ready');
+                    sendMessage('authentication_success', 'Logged in (search=' + termReady.sf + ', order=' + termReady.ob + ', balance=' + termReady.bal + ', symbols=' + termReady.syms + ')');
+
+                    // Small settle so the final DOM state is consistent before
+                    // the first trade runs.
+                    await new Promise(r => setTimeout(r, 800));
+
                     // If this is a trading request, proceed with trading immediately
                     ${isTradingRequest ? `
-                    setTimeout(() => {
-                      executeTrading();
-                    }, 2000);
+                    executeTrading();
                     ` : ''}
 
                     // Register listener for on-demand trades from the parent frame.
