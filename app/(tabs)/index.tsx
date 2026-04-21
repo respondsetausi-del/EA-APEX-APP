@@ -75,6 +75,12 @@ export default function HomeScreen() {
   const [tradeCount, setTradeCount] = useState<string>('1');
   const [tradePlatform, setTradePlatform] = useState<'MT4' | 'MT5'>('MT4');
   const [tradeError, setTradeError] = useState<string | null>(null);
+  // Auto-detected SL / TP (pip-distance recommendations) derived from the
+  // scanner's volatility + detected levels. Shown as hints on the result
+  // panel so the user knows what the scanner would set — absolute broker
+  // prices aren't computed here because we don't have a live feed.
+  const [autoSlPips, setAutoSlPips] = useState<number | null>(null);
+  const [autoTpPips, setAutoTpPips] = useState<number | null>(null);
 
   const SCAN_HISTORY_KEY = 'scanHistory.v1';
   const SCAN_SYMBOL_KEY = 'scanLastSymbol.v1';
@@ -333,6 +339,63 @@ export default function HomeScreen() {
     return undefined;
   }, [activeSymbols, mt4Symbols, mt5Symbols]);
 
+  // Extract a tradable symbol from an image asset. Matches the filename
+  // against the user's configured symbols first ('EURUSD_h1.png' →
+  // 'EURUSD'), then falls back to a best-effort ticker-shape regex.
+  const detectSymbolFromAsset = useCallback((asset: ImagePicker.ImagePickerAsset | null): string => {
+    if (!asset) return '';
+    const name = (asset.fileName || (typeof asset.uri === 'string' ? asset.uri.split('/').pop() || '' : '')).toUpperCase();
+    if (!name) return '';
+    for (const sym of quickPickSymbols) {
+      if (name.includes(sym)) return sym;
+    }
+    const m = name.match(/[A-Z]{3,8}(?:USDT?|JPY|EUR|GBP|CHF|AUD|CAD|NZD|BTC|ETH)?/g);
+    if (m && m[0]) return m[0].slice(0, 8);
+    return '';
+  }, [quickPickSymbols]);
+
+  // Derive SL / TP pip recommendations from the scanner's heuristics.
+  // Volatility drives the stop width; momentum + strength drive the RR
+  // ratio. Clamped so we never recommend a 2-pip stop or a 500-pip stop.
+  const deriveSLTPPips = useCallback((result: ChartInsights): { sl: number; tp: number } => {
+    const v = Math.max(0, Math.min(1, result.volatilityScore || 0));
+    const sl = Math.max(12, Math.min(90, Math.round(18 + v * 55)));
+    const momentumRR = result.momentum === 'strengthening' ? 2.2
+      : result.momentum === 'weakening' ? 1.4
+      : 1.7;
+    const strengthRR = result.signal.strength === 'strong' ? 1.15
+      : result.signal.strength === 'moderate' ? 1.0
+      : 0.85;
+    const tp = Math.max(sl + 5, Math.round(sl * momentumRR * strengthRR));
+    return { sl, tp };
+  }, []);
+
+  // Once a scan lands, auto-fill the tradeSymbol (from filename or the
+  // first configured symbol) and compute SL / TP pip hints. Running in
+  // an effect instead of commitInsights avoids a render-time hook
+  // ordering dependency on quickPickSymbols.
+  useEffect(() => {
+    if (!insights) {
+      setAutoSlPips(null);
+      setAutoTpPips(null);
+      return;
+    }
+    const detected = detectSymbolFromAsset(pickedImage);
+    const nextSym = (tradeSymbol || detected || quickPickSymbols[0] || '').trim().toUpperCase();
+    if (nextSym && nextSym !== tradeSymbol) {
+      setTradeSymbol(nextSym);
+      AsyncStorage.setItem(SCAN_SYMBOL_KEY, nextSym).catch(() => {});
+    }
+    if (insights.signal.action === 'BUY' || insights.signal.action === 'SELL') {
+      const { sl, tp } = deriveSLTPPips(insights);
+      setAutoSlPips(sl);
+      setAutoTpPips(tp);
+    } else {
+      setAutoSlPips(null);
+      setAutoTpPips(null);
+    }
+  }, [insights, pickedImage, quickPickSymbols, detectSymbolFromAsset, deriveSLTPPips]);
+
   // Pick a sensible default platform: prefer an already-configured account.
   // When a symbol is picked, its saved lot / count / platform are used as
   // the starting values. When Auto-Trade is on and we have a valid setup,
@@ -357,30 +420,31 @@ export default function HomeScreen() {
     setTradeCount(nextCount);
     setTradePlatform(nextPlatform);
 
-    // Auto-Trade mode — if we have enough to fire, do it without opening
-    // the confirm sub-modal. Falls back to the sheet when a symbol isn't
-    // picked yet or the lot is invalid.
-    if (autoTradeEnabled && nextSymbol && parseFloat(nextLot) > 0) {
-      const count = parseInt(nextCount, 10);
-      const lot = parseFloat(nextLot);
-      if (isFinite(count) && count >= 1 && count <= 50 && isFinite(lot) && lot > 0) {
-        const result = placeManualTrade({
-          symbol: nextSymbol,
-          action: insights.signal.action,
-          lot,
-          count,
-          platform: nextPlatform,
-        });
-        if (result.ok) {
-          setSynapseOpen(false);
-          resetScanner();
-          return;
-        }
-        setTradeError(result.error || 'Could not place trade.');
+    // One-click confirm: if the auto-discovered symbol + configured lot /
+    // count are valid, fire the trade without opening the confirm sheet.
+    // Previously this required the global autoTradeEnabled toggle — the
+    // scanner CTA itself is an explicit user confirmation, so the toggle
+    // is no longer a gate. Falls back to the modal when a symbol isn't
+    // picked yet or the values are invalid so the user can fix them.
+    const count = parseInt(nextCount, 10);
+    const lot = parseFloat(nextLot);
+    if (nextSymbol && isFinite(lot) && lot > 0 && isFinite(count) && count >= 1 && count <= 50) {
+      const result = placeManualTrade({
+        symbol: nextSymbol,
+        action: insights.signal.action,
+        lot,
+        count,
+        platform: nextPlatform,
+      });
+      if (result.ok) {
+        setSynapseOpen(false);
+        resetScanner();
+        return;
       }
+      setTradeError(result.error || 'Could not place trade.');
     }
     setTradePromptOpen(true);
-  }, [insights, quickPickSymbols, hasMt4Account, hasMt5Account, tradeSymbol, tradeLot, tradeCount, tradePlatform, lookupSymbolConfig, autoTradeEnabled, placeManualTrade, resetScanner]);
+  }, [insights, quickPickSymbols, hasMt4Account, hasMt5Account, tradeSymbol, tradeLot, tradeCount, tradePlatform, lookupSymbolConfig, placeManualTrade, resetScanner]);
 
   const handleExecuteTrade = useCallback(() => {
     if (!insights) return;
@@ -781,9 +845,35 @@ export default function HomeScreen() {
           ))}
         </View>
 
-        {/* ── Trade-this-signal CTA ────────────────────────────────
-            Scanner calls a direction; offer to fire trades in that
-            direction without making the user leave the scanner. */}
+        {/* ── Auto-detected trade plan ─────────────────────────────
+            Surfaced BEFORE the CTA so the user sees exactly what the
+            one-click confirm is about to fire: discovered symbol, lot,
+            and SL / TP pip distances derived from volatility. */}
+        {(data.signal.action === 'BUY' || data.signal.action === 'SELL') && (
+          <View style={[styles.scannerAutoPlan, { borderColor: signalColor + '55' }]}>
+            <Text style={[styles.scannerAutoPlanTitle, { color: signalColor }]}>AUTO-DETECTED</Text>
+            <View style={styles.scannerAutoPlanRow}>
+              <Text style={styles.scannerAutoPlanKey}>Symbol</Text>
+              <Text style={[styles.scannerAutoPlanVal, { color: tradeSymbol ? '#FFFFFF' : '#FFA64D' }]}>
+                {tradeSymbol || 'not detected — tap to pick'}
+              </Text>
+            </View>
+            {autoSlPips !== null && autoTpPips !== null && (
+              <View style={styles.scannerAutoPlanRow}>
+                <Text style={styles.scannerAutoPlanKey}>SL / TP</Text>
+                <Text style={styles.scannerAutoPlanVal}>
+                  {autoSlPips} pips / {autoTpPips} pips
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ── One-click confirm CTA ────────────────────────────────
+            Tapping this IS the confirmation — with a detected symbol
+            and configured lot, the trade fires immediately. If the
+            symbol is missing or the lot invalid, we fall back to the
+            editable confirm sheet so the user can adjust and try again. */}
         {(data.signal.action === 'BUY' || data.signal.action === 'SELL') && (
           <TouchableOpacity
             onPress={openTradePrompt}
@@ -796,7 +886,7 @@ export default function HomeScreen() {
           >
             <Zap color={signalColor} size={18} strokeWidth={2.5} />
             <Text style={[styles.scannerTradeCtaText, { color: signalColor }]}>
-              TRADE {data.signal.action} SIGNAL
+              CONFIRM {data.signal.action} TRADE
             </Text>
           </TouchableOpacity>
         )}
@@ -1223,7 +1313,7 @@ export default function HomeScreen() {
 
           <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scannerBody}>
             <Text style={styles.scannerIntro}>
-              Drop a chart screenshot. We read the candles on-device and call a BUY, SELL or WAIT with a live confidence score — no servers, no AI.
+              Drop your chart scanner.
             </Text>
 
             {/* ── Symbol picker ──────────────────────────────────────
@@ -2647,6 +2737,37 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 1.6,
+  },
+  scannerAutoPlan: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+  },
+  scannerAutoPlanTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    marginBottom: 6,
+  },
+  scannerAutoPlanRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
+  scannerAutoPlanKey: {
+    fontSize: 12,
+    color: '#AAAAAA',
+    letterSpacing: 0.5,
+  },
+  scannerAutoPlanVal: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   tradePromptBackdrop: {
     flex: 1,
