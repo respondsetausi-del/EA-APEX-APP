@@ -3,7 +3,6 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState, Component, ReactNode } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppProvider, useApp } from "@/providers/app-provider";
 import { View, Platform, Text, TouchableOpacity, StyleSheet, AppState } from "react-native";
 import { DynamicIsland } from "@/components/dynamic-island";
@@ -150,36 +149,12 @@ const errorStyles = StyleSheet.create({
  * suspenders checks in case this gate is ever bypassed.
  */
 function AuthGate({ children }: { children: ReactNode }) {
-  const { isHydrated, eas } = useApp();
+  const { isHydrated, eas, emailAuthenticated } = useApp();
   const pathname = usePathname();
   const router = useRouter();
-  const [authChecked, setAuthChecked] = useState<boolean>(false);
-  const [hasEmailAuth, setHasEmailAuth] = useState<boolean>(false);
-
-  // Re-read the persisted flag every time the pathname changes. Using
-  // AsyncStorage rather than a context value keeps this resilient to any
-  // screen that writes the flag directly (login.tsx does).
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const v = await AsyncStorage.getItem('emailAuthenticated');
-        if (!cancelled) {
-          setHasEmailAuth(v === 'true');
-          setAuthChecked(true);
-        }
-      } catch {
-        if (!cancelled) {
-          setHasEmailAuth(false);
-          setAuthChecked(true);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [pathname]);
 
   useEffect(() => {
-    if (!isHydrated || !authChecked) return;
+    if (!isHydrated) return;
 
     const path = pathname || '/';
     const onLogin = path === '/login' || path.startsWith('/login');
@@ -188,7 +163,7 @@ function AuthGate({ children }: { children: ReactNode }) {
     // Never redirect while already on /login — that's the safe fallback.
     if (onLogin) return;
 
-    if (!hasEmailAuth) {
+    if (!emailAuthenticated) {
       // Unauthenticated users MUST go to /login, no matter which route
       // they deep-linked to (including /license — the active exploit).
       router.replace('/login');
@@ -196,15 +171,13 @@ function AuthGate({ children }: { children: ReactNode }) {
     }
 
     // Authenticated but no license yet → push them to /license.
-    // We only force this when on the tabs root; allow /license itself
-    // and any sub-routes they might already be navigating to.
     if (eas.length === 0 && !onLicense) {
       router.replace('/license');
       return;
     }
-  }, [isHydrated, authChecked, hasEmailAuth, pathname, eas.length, router]);
+  }, [isHydrated, emailAuthenticated, pathname, eas.length, router]);
 
-  if (!isHydrated || !authChecked) {
+  if (!isHydrated) {
     return <View style={{ flex: 1, backgroundColor: '#000000' }} />;
   }
 

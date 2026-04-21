@@ -4,9 +4,35 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
 
 // ── Device Fingerprint ──────────────────────────────────────
+// Stability is critical: the backend binds a subscription to whatever
+// device_id it first sees. If this value ever changes for the same install
+// — even transiently — the server returns device_mismatch and the user is
+// kicked. Three lines of defense:
+//   1. Crypto-backed UUID generation.
+//   2. Module-level in-memory cache so a session always returns the same
+//      ID even if a later AsyncStorage read fails.
+//   3. On web, mirror the ID to localStorage so a cleared AsyncStorage
+//      still recovers the original.
+// MIGRATION: existing stored IDs (shape `${os}-<uuid>-<Date.now()>`) are
+// never rewritten — only brand-new installs mint the new clean format.
 const DEVICE_ID_KEY = '@eaconverter_device_id';
 
+let cachedDeviceId: string | null = null;
+
 function generateUUID(): string {
+  try {
+    const g: any = globalThis as any;
+    if (g?.crypto?.randomUUID) return g.crypto.randomUUID();
+    if (g?.crypto?.getRandomValues) {
+      const bytes = new Uint8Array(16);
+      g.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex: string[] = [];
+      for (let i = 0; i < 16; i++) hex.push(bytes[i].toString(16).padStart(2, '0'));
+      return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
+    }
+  } catch {}
   const hex = '0123456789abcdef';
   let uuid = '';
   for (let i = 0; i < 32; i++) {
@@ -16,19 +42,52 @@ function generateUUID(): string {
   return uuid;
 }
 
-async function getOrCreateDeviceId(): Promise<string> {
+function readLocalStorageId(): string | null {
+  if (Platform.OS !== 'web') return null;
   try {
-    const stored = await AsyncStorage.getItem(DEVICE_ID_KEY);
-    if (stored) return stored;
-
-    const deviceId = `${Platform.OS}-${generateUUID()}-${Date.now()}`;
-    await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId);
-    return deviceId;
+    const w: any = typeof window !== 'undefined' ? window : undefined;
+    return w?.localStorage?.getItem?.(DEVICE_ID_KEY) ?? null;
   } catch {
-    const fallback = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    try { await AsyncStorage.setItem(DEVICE_ID_KEY, fallback); } catch {}
-    return fallback;
+    return null;
   }
+}
+
+function writeLocalStorageId(id: string): void {
+  if (Platform.OS !== 'web') return;
+  try {
+    const w: any = typeof window !== 'undefined' ? window : undefined;
+    w?.localStorage?.setItem?.(DEVICE_ID_KEY, id);
+  } catch {}
+}
+
+async function getOrCreateDeviceId(): Promise<string> {
+  if (cachedDeviceId) return cachedDeviceId;
+
+  let asyncStored: string | null = null;
+  try {
+    asyncStored = await AsyncStorage.getItem(DEVICE_ID_KEY);
+  } catch {
+    asyncStored = null;
+  }
+
+  const localStored = readLocalStorageId();
+
+  if (asyncStored) {
+    if (!localStored) writeLocalStorageId(asyncStored);
+    cachedDeviceId = asyncStored;
+    return asyncStored;
+  }
+  if (localStored) {
+    try { await AsyncStorage.setItem(DEVICE_ID_KEY, localStored); } catch {}
+    cachedDeviceId = localStored;
+    return localStored;
+  }
+
+  const deviceId = `${Platform.OS}-${generateUUID()}`;
+  try { await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId); } catch {}
+  writeLocalStorageId(deviceId);
+  cachedDeviceId = deviceId;
+  return deviceId;
 }
 
 // ── Types ───────────────────────────────────────────────────

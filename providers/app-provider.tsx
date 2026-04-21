@@ -1,5 +1,5 @@
 import createContextHook from '@nkzw/create-context-hook';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform, Alert } from 'react-native';
 import { LicenseData, apiService } from '@/services/api';
@@ -78,6 +78,16 @@ export interface ManualTradeRequest {
   tpPrice?: number;
 }
 
+/** Silent pre-warm: mount the trading WebView just long enough to log in
+ *  to the terminal and park it in keep-alive mode. No trade is placed —
+ *  the proxy script's trade branch is skipped because asset/action/volume
+ *  are intentionally empty, so `isTradingRequest` in server.ts resolves
+ *  false. Real signals that arrive later can still postMessage into the
+ *  warm session via dispatchTradeToWarmSession. */
+export interface WarmupRequest {
+  platform: 'MT4' | 'MT5';
+}
+
 export interface PlaceManualTradeResult {
   ok: boolean;
   error?: string;
@@ -95,6 +105,14 @@ interface AppState {
    *  before making redirect decisions, otherwise they evaluate stale defaults
    *  and send fresh devices to the wrong place. */
   isHydrated: boolean;
+  /** Single source of truth for whether the user has passed email auth.
+   *  AuthGate, login, and license all consume this from context — previously
+   *  each screen re-read AsyncStorage on every pathname change, which raced
+   *  and produced a login → license → login loop after any kick. */
+  emailAuthenticated: boolean;
+  setEmailAuthenticated: (value: boolean) => Promise<void>;
+  /** Manually re-run the subscription check (resets failure counter). */
+  refreshSubscription: () => Promise<void>;
   activeSymbols: ActiveSymbol[];
   mt4Symbols: MT4Symbol[];
   mt5Symbols: MT5Symbol[];
@@ -105,6 +123,7 @@ interface AppState {
   tradingSignal: SignalLog | null;
   showTradingWebView: boolean;
   manualTradeRequest: ManualTradeRequest | null;
+  warmupRequest: WarmupRequest | null;
   databaseSignal: DatabaseSignal | null;
   isDatabaseSignalsPolling: boolean;
   glowColor: string;
@@ -175,6 +194,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [mt5Account, setMT5AccountState] = useState<MT5Account | null>(null);
   const [isFirstTime, setIsFirstTimeState] = useState<boolean>(true);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
+  const [emailAuthenticated, setEmailAuthenticatedState] = useState<boolean>(false);
   const [activeSymbols, setActiveSymbols] = useState<ActiveSymbol[]>([]);
   const [mt4Symbols, setMT4Symbols] = useState<MT4Symbol[]>([]);
   const [mt5Symbols, setMT5Symbols] = useState<MT5Symbol[]>([]);
@@ -185,6 +205,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [tradingSignal, setTradingSignal] = useState<SignalLog | null>(null);
   const [showTradingWebView, setShowTradingWebView] = useState<boolean>(false);
   const [manualTradeRequest, setManualTradeRequest] = useState<ManualTradeRequest | null>(null);
+  const [warmupRequest, setWarmupRequest] = useState<WarmupRequest | null>(null);
   const [databaseSignal, setDatabaseSignal] = useState<DatabaseSignal | null>(null);
   const [isDatabaseSignalsPolling, setIsDatabaseSignalsPolling] = useState<boolean>(false);
   const [glowColor, setGlowColorState] = useState<string>('#00BFFF');
@@ -217,7 +238,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       console.log('Loading persisted data...');
 
       // Load all data in parallel but handle each independently
-      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData, scannerData, heroHiddenData, chatVisibleData, autoTradeData] = await Promise.allSettled([
+      const [userData, easData, mtData, mt4Data, mt5Data, firstTimeData, activeSymbolsData, mt4SymbolsData, mt5SymbolsData, botActiveData, glowColorData, heroAvatarData, bgVideoData, panelData, voiceData, layoutData, scannerData, heroHiddenData, chatVisibleData, autoTradeData, emailAuthData] = await Promise.allSettled([
         AsyncStorage.getItem('user'),
         AsyncStorage.getItem('eas'),
         AsyncStorage.getItem('mtAccount'),
@@ -237,7 +258,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         AsyncStorage.getItem('scannerStyle'),
         AsyncStorage.getItem('heroHidden'),
         AsyncStorage.getItem('chatVisible'),
-        AsyncStorage.getItem('autoTradeEnabled')
+        AsyncStorage.getItem('autoTradeEnabled'),
+        AsyncStorage.getItem('emailAuthenticated')
       ]);
 
       // Handle user data
@@ -493,6 +515,9 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
           console.error('Error parsing autoTradeEnabled setting:', e);
         }
       }
+      if (emailAuthData.status === 'fulfilled' && emailAuthData.value === 'true') {
+        setEmailAuthenticatedState(true);
+      }
 
       console.log('Persisted data loading completed');
     } catch (error) {
@@ -515,47 +540,124 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     }
   };
 
-  // ── SUBSCRIPTION VERIFICATION ON EVERY APP OPEN ──
-  // Checks server on launch. If revoked, expired, or device mismatch → instant kick.
-  const verifySubscription = useCallback(async () => {
+  const setEmailAuthenticated = useCallback(async (value: boolean) => {
+    setEmailAuthenticatedState(value);
+    try {
+      if (value) {
+        await AsyncStorage.setItem('emailAuthenticated', 'true');
+      } else {
+        await AsyncStorage.removeItem('emailAuthenticated');
+      }
+    } catch (error) {
+      console.error('Error persisting emailAuthenticated:', error);
+    }
+  }, []);
+
+  // ── SUBSCRIPTION VERIFICATION ──
+  // Previously, a single device_mismatch / !paid response was enough to wipe
+  // all auth state. That created false-positive kickouts whenever the device
+  // ID regenerated or the backend hiccuped. Now we require THREE consecutive
+  // "real" revocation responses, spaced with exponential backoff (2s / 8s /
+  // 30s), before clearing state. Transient errors (thrown fetches, timeouts,
+  // network failures) never bump the counter.
+  const subscriptionFailuresRef = useRef<number>(0);
+  const subscriptionBackoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasVerifiedThisSessionRef = useRef<boolean>(false);
+  const SUBSCRIPTION_KICK_THRESHOLD = 3;
+  const SUBSCRIPTION_BACKOFFS_MS = [2_000, 8_000, 30_000];
+
+  const runSubscriptionCheck = useCallback(async () => {
     if (!user?.email) return;
+    let account: Awaited<ReturnType<typeof apiService.authenticate>> | null = null;
     try {
       console.log('Verifying subscription for:', user.email);
-      const account = await apiService.authenticate({
+      account = await apiService.authenticate({
         email: user.email,
         mentor: user.mentorId || '0',
       });
-
-      const shouldKick =
-        account.status === 'not_found' ||
-        !account.paid ||
-        (account as any).expired ||
-        (account as any).device_mismatch;
-
-      if (shouldKick) {
-        console.log('Subscription invalid — kicking user:', {
-          status: account.status,
-          paid: account.paid,
-          expired: (account as any).expired,
-          device_mismatch: (account as any).device_mismatch,
-        });
-        // Clear all auth state
-        setUserState(null);
-        setEAs([]);
-        await AsyncStorage.multiRemove(['user', 'eas', 'emailAuthenticated']);
-      }
     } catch (error) {
-      // Network error — don't kick, let them use cached state
+      // Transient — do not bump the failure counter, do not kick.
       console.log('Subscription check failed (network) — allowing cached access');
+      return;
     }
+
+    const revoked =
+      account.status === 'not_found' ||
+      !account.paid ||
+      (account as any).expired ||
+      (account as any).device_mismatch;
+
+    if (!revoked) {
+      if (subscriptionFailuresRef.current > 0) {
+        console.log('Subscription OK — resetting failure counter');
+      }
+      subscriptionFailuresRef.current = 0;
+      if (subscriptionBackoffTimerRef.current) {
+        clearTimeout(subscriptionBackoffTimerRef.current);
+        subscriptionBackoffTimerRef.current = null;
+      }
+      return;
+    }
+
+    subscriptionFailuresRef.current += 1;
+    const n = subscriptionFailuresRef.current;
+    console.log('Subscription revocation signal:', {
+      attempt: n,
+      threshold: SUBSCRIPTION_KICK_THRESHOLD,
+      status: account.status,
+      paid: account.paid,
+      expired: (account as any).expired,
+      device_mismatch: (account as any).device_mismatch,
+    });
+
+    if (n >= SUBSCRIPTION_KICK_THRESHOLD) {
+      console.log('Subscription revocation confirmed after', n, 'attempts — kicking user');
+      subscriptionFailuresRef.current = 0;
+      if (subscriptionBackoffTimerRef.current) {
+        clearTimeout(subscriptionBackoffTimerRef.current);
+        subscriptionBackoffTimerRef.current = null;
+      }
+      setUserState(null);
+      setEAs([]);
+      setEmailAuthenticatedState(false);
+      try {
+        await AsyncStorage.multiRemove(['user', 'eas', 'emailAuthenticated']);
+      } catch {}
+      return;
+    }
+
+    const delay = SUBSCRIPTION_BACKOFFS_MS[Math.min(n - 1, SUBSCRIPTION_BACKOFFS_MS.length - 1)];
+    if (subscriptionBackoffTimerRef.current) clearTimeout(subscriptionBackoffTimerRef.current);
+    subscriptionBackoffTimerRef.current = setTimeout(() => {
+      subscriptionBackoffTimerRef.current = null;
+      runSubscriptionCheck();
+    }, delay);
   }, [user?.email, user?.mentorId]);
 
-  // Run verification after user state is hydrated
-  useEffect(() => {
-    if (isHydrated && user?.email) {
-      verifySubscription();
+  const verifySubscription = useCallback(async () => {
+    subscriptionFailuresRef.current = 0;
+    if (subscriptionBackoffTimerRef.current) {
+      clearTimeout(subscriptionBackoffTimerRef.current);
+      subscriptionBackoffTimerRef.current = null;
     }
-  }, [isHydrated, user?.email]);
+    await runSubscriptionCheck();
+  }, [runSubscriptionCheck]);
+
+  // Run verification once per session after hydration. Re-runs require an
+  // explicit refreshSubscription() call (exposed on context) instead of
+  // firing on every pathname / focus tick.
+  useEffect(() => {
+    if (!isHydrated || !user?.email) return;
+    if (hasVerifiedThisSessionRef.current) return;
+    hasVerifiedThisSessionRef.current = true;
+    runSubscriptionCheck();
+  }, [isHydrated, user?.email, runSubscriptionCheck]);
+
+  useEffect(() => {
+    return () => {
+      if (subscriptionBackoffTimerRef.current) clearTimeout(subscriptionBackoffTimerRef.current);
+    };
+  }, []);
 
   const setUser = useCallback(async (newUser: User) => {
     setUserState(newUser);
@@ -959,6 +1061,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
 
             if (isActiveInLegacy || isActiveInMT4 || isActiveInMT5) {
               console.log('✅ DB signal is for active symbol, triggering trade WebView:', symbolName);
+              setWarmupRequest(null);
+              setTerminalWarming(false);
               setTradingSignal(signalLog);
               setShowTradingWebView(true);
             } else {
@@ -1103,6 +1207,10 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         console.log('✅ Signal is for active symbol, triggering trading WebView:', symbolName);
         console.log('Setting trading signal:', signal);
         console.log('Setting showTradingWebView to true');
+        // A real signal promotes the warm session into trade mode. Clear
+        // the warmup marker so isWarmup flips off and dispatch runs.
+        setWarmupRequest(null);
+        setTerminalWarming(false);
         setTradingSignal(signal);
         setShowTradingWebView(true);
       } else {
@@ -1145,6 +1253,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       // Clear trading signal when closing WebView
       setTradingSignal(null);
       setManualTradeRequest(null);
+      setWarmupRequest(null);
+      setTerminalWarming(false);
     }
   }, []);
 
@@ -1209,6 +1319,8 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
 
     setManualTradeRequest(manual);
     setTradingSignal(synthetic);
+    setWarmupRequest(null);
+    setTerminalWarming(false);
     setShowTradingWebView(true);
 
     return { ok: true, platform };
@@ -1220,53 +1332,45 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     if (warm) setTerminalWarming(false);
   }, []);
 
-  // Silent pre-warm: log in to the terminal and park it in keep-alive
-  // mode without placing any trade. Fires placeManualTrade with count=0
-  // and flips terminalWarming so the WebView mounts in invisible mode.
-  // Re-entry is a no-op while the session is already warm.
+  // Silent pre-warm: mount the TradingWebView with a WarmupRequest — no
+  // ManualTradeRequest, no synthetic signal. The WebView builds the proxy
+  // URL with empty asset/action/volume/numberOfTrades, which makes
+  // server.ts's `isTradingRequest` check false. The embedded script logs
+  // in and sits idle on keep-alive; no trade is executed. When a real
+  // signal arrives later, dispatchTradeToWarmSession reuses the session.
+  //
+  // Previously this built a fake ManualTradeRequest with `count: 0` and
+  // fallback symbol `'EURUSD'`. That fallback caused the app to place a
+  // real EURUSD BUY on the broker account on every app open, because
+  // String(0) is truthy in the server's check. Fixed: no fake symbol,
+  // no fake trade. If no symbols are configured we don't warm at all.
   const warmTerminalSession = useCallback((platformArg?: 'MT4' | 'MT5'): boolean => {
     const hasMt4 = !!(mt4Account?.login && mt4Account?.password && mt4Account?.server);
     const hasMt5 = !!(mt5Account?.login && mt5Account?.password && mt5Account?.server);
-    const platform: 'MT4' | 'MT5' =
+    const platform: 'MT4' | 'MT5' | null =
       platformArg === 'MT4' && hasMt4 ? 'MT4'
       : platformArg === 'MT5' && hasMt5 ? 'MT5'
       : hasMt5 ? 'MT5'
       : hasMt4 ? 'MT4'
-      : null as unknown as 'MT4' | 'MT5';
+      : null;
     if (!platform) return false;
     if (platform === 'MT4' && mt4SessionWarm) return false;
     if (platform === 'MT5' && mt5SessionWarm) return false;
 
-    // Pick a configured symbol for the platform — anything that makes
-    // the terminal URL well-formed. Falls back to EURUSD if nothing is
-    // configured yet (the warmup still lands on the login screen).
+    // Require at least one configured symbol for the chosen platform —
+    // warming a terminal we have no intent to trade on just wastes a
+    // broker-side login.
     const platformSymbols = platform === 'MT4' ? mt4Symbols : mt5Symbols;
-    const fallbackSymbol = platformSymbols[0]?.symbol || activeSymbols[0]?.symbol || 'EURUSD';
-    const fallbackLot = parseFloat(platformSymbols[0]?.lotSize || '0.01') || 0.01;
+    if (platformSymbols.length === 0 && activeSymbols.length === 0) {
+      console.log('[warmTerminalSession] skipped — no symbols configured for', platform);
+      return false;
+    }
 
-    console.log('[warmTerminalSession] warming', platform, 'via', fallbackSymbol);
+    console.log('[warmTerminalSession] silent warmup for', platform);
     setTerminalWarming(true);
-
-    const manual: ManualTradeRequest = {
-      symbol: fallbackSymbol,
-      action: 'BUY',
-      lot: fallbackLot,
-      count: 0,
-      platform,
-    };
-    const synthetic: SignalLog = {
-      id: `warmup-${Date.now()}`,
-      asset: fallbackSymbol,
-      action: 'BUY',
-      price: '0',
-      tp: '',
-      sl: '',
-      time: new Date().toISOString(),
-      latestupdate: new Date().toISOString(),
-      receivedAt: new Date(),
-    };
-    setManualTradeRequest(manual);
-    setTradingSignal(synthetic);
+    setWarmupRequest({ platform });
+    setManualTradeRequest(null);
+    setTradingSignal(null);
     setShowTradingWebView(true);
     return true;
   }, [mt4Account, mt5Account, mt4Symbols, mt5Symbols, activeSymbols, mt4SessionWarm, mt5SessionWarm]);
@@ -1317,6 +1421,9 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     mt5Account,
     isFirstTime,
     isHydrated,
+    emailAuthenticated,
+    setEmailAuthenticated,
+    refreshSubscription: verifySubscription,
     activeSymbols,
     mt4Symbols,
     mt5Symbols,
@@ -1327,6 +1434,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     tradingSignal,
     showTradingWebView,
     manualTradeRequest,
+    warmupRequest,
     databaseSignal,
     isDatabaseSignalsPolling,
     glowColor,
@@ -1379,5 +1487,5 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setTradingSignal: setTradingSignalCallback,
     setShowTradingWebView: setShowTradingWebViewCallback,
     placeManualTrade,
-  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, manualTradeRequest, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, scannerOpenRequest, requestOpenScanner, chatVisible, setChatVisible, autoTradeEnabled, setAutoTradeEnabled, terminalWarming, mt4SessionWarm, mt5SessionWarm, markSessionWarm, warmTerminalSession, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback, placeManualTrade]);
+  }), [user, eas, mtAccount, mt4Account, mt5Account, isFirstTime, isHydrated, emailAuthenticated, setEmailAuthenticated, verifySubscription, activeSymbols, mt4Symbols, mt5Symbols, isBotActive, signalLogs, isSignalsMonitoring, newSignal, tradingSignal, showTradingWebView, manualTradeRequest, warmupRequest, databaseSignal, isDatabaseSignalsPolling, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, scannerOpenRequest, requestOpenScanner, chatVisible, setChatVisible, autoTradeEnabled, setAutoTradeEnabled, terminalWarming, mt4SessionWarm, mt5SessionWarm, markSessionWarm, warmTerminalSession, setUser, addEA, removeEA, setActiveEA, setMTAccount, setMT4Account, setMT5Account, setIsFirstTime, activateSymbol, activateMT4Symbol, activateMT5Symbol, deactivateSymbol, deactivateMT4Symbol, deactivateMT5Symbol, setBotActive, requestOverlayPermission, startSignalsMonitoring, stopSignalsMonitoring, clearSignalLogs, dismissNewSignal, setTradingSignalCallback, setShowTradingWebViewCallback, placeManualTrade]);
 });
