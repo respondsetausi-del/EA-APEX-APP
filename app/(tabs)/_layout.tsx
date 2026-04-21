@@ -8,20 +8,26 @@ import { SidebarDrawer } from "@/components/sidebar-drawer";
 import { NotificationToast } from "@/components/notification-toast";
 
 export default function TabLayout() {
-  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, requestOpenScanner, chatVisible, setChatVisible, autoTradeEnabled, setAutoTradeEnabled, warmTerminalSession, mt4Account, mt5Account, isHydrated, newSignal, dismissNewSignal } = useApp();
+  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, requestOpenScanner, chatVisible, setChatVisible, autoTradeEnabled, setAutoTradeEnabled, warmTerminalSession, mt4Account, mt5Account, mt4Symbols, mt5Symbols, isHydrated, newSignal, dismissNewSignal } = useApp();
 
-  // Pre-warm the broker terminal on app open. As soon as hydration is
-  // done and we know there are credentials to inject, fire a silent
-  // login so the first real trade doesn't have to wait for the whole
-  // login handshake.
+  // Pre-warm the broker terminal on app open. Now gated on BOTH having
+  // credentials AND the user having opted into auto-trading AND at least
+  // one configured symbol — without those, warming is pointless (the
+  // terminal would log in, idle, and eventually time out). Previously
+  // this ran unconditionally on every app open and — together with the
+  // fake ManualTradeRequest the old warmTerminalSession built — caused
+  // a rogue EURUSD BUY on the broker account.
   useEffect(() => {
     if (!isHydrated) return;
+    if (!autoTradeEnabled) return;
     const hasMt4 = !!(mt4Account?.login && mt4Account?.password && mt4Account?.server);
     const hasMt5 = !!(mt5Account?.login && mt5Account?.password && mt5Account?.server);
     if (!hasMt4 && !hasMt5) return;
+    const hasSymbols = (mt4Symbols?.length ?? 0) + (mt5Symbols?.length ?? 0) > 0;
+    if (!hasSymbols) return;
     const t = setTimeout(() => { warmTerminalSession(); }, 1200);
     return () => clearTimeout(t);
-  }, [isHydrated, mt4Account, mt5Account, warmTerminalSession]);
+  }, [isHydrated, autoTradeEnabled, mt4Account, mt5Account, mt4Symbols, mt5Symbols, warmTerminalSession]);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastVisible, setToastVisible] = useState(false);

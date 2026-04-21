@@ -34,11 +34,12 @@ interface TradeConfig {
 const KEEP_ALIVE_MS = 5 * 60 * 1000; // 5 minutes idle timeout
 
 export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps) {
-  const { activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, eas, manualTradeRequest, terminalWarming, markSessionWarm } = useApp();
+  const { activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, eas, manualTradeRequest, warmupRequest, terminalWarming, markSessionWarm } = useApp();
   // Warmup mode hides the visible UI entirely — the invisible iframe
   // still mounts and runs the login script so the terminal is ready
-  // when the user actually triggers a trade.
-  const isWarmup = terminalWarming && manualTradeRequest?.count === 0;
+  // when the user actually triggers a trade. Warmup is identified by a
+  // WarmupRequest being set with no real signal attached.
+  const isWarmup = !!warmupRequest && !signal;
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [tradeExecuted, setTradeExecuted] = useState<boolean>(false);
@@ -52,6 +53,11 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
   const [sessionWarm, setSessionWarm] = useState<boolean>(false);
   const [sessionPlatform, setSessionPlatform] = useState<'MT4' | 'MT5' | null>(null);
   const keepAliveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tracks how many consecutive trades have failed. Reset to 0 on success.
+  // After CONSECUTIVE_FAILURE_LIMIT, the toast surfaces a persistent error
+  // rather than silently retrying — so the user notices and resets.
+  const consecutiveFailuresRef = useRef<number>(0);
+  const CONSECUTIVE_FAILURE_LIMIT = 3;
 
   const resetKeepAliveTimer = useCallback(() => {
     if (keepAliveTimerRef.current) clearTimeout(keepAliveTimerRef.current);
@@ -72,6 +78,19 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
 
   // Get trade configuration for the signal
   const getTradeConfig = useCallback((): TradeConfig | null => {
+    // Silent warmup path: no real signal, but we still need a config so
+    // the URL-building effect below can pick the right proxy endpoint.
+    // All trade-related fields are empty, which makes server.ts's
+    // isTradingRequest check false → embedded script logs in and idles.
+    if (!signal && warmupRequest) {
+      return {
+        symbol: '',
+        lotSize: '',
+        platform: warmupRequest.platform,
+        direction: 'BOTH',
+        numberOfTrades: '',
+      };
+    }
     if (!signal) return null;
 
     const symbolName = signal.asset;
@@ -124,7 +143,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     }
 
     return null;
-  }, [signal, activeSymbols, mt4Symbols, mt5Symbols, manualTradeRequest]);
+  }, [signal, activeSymbols, mt4Symbols, mt5Symbols, manualTradeRequest, warmupRequest]);
 
   const tradeConfig = useMemo(() => getTradeConfig(), [getTradeConfig]);
 
@@ -1423,15 +1442,36 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         case 'authentication_failed':
           console.log('Auth failed:', data.message);
           stopHeartbeat();
+          consecutiveFailuresRef.current += 1;
           setCurrentStep(data.message);
-          setError(data.message);
+          setError(consecutiveFailuresRef.current >= CONSECUTIVE_FAILURE_LIMIT
+            ? `${data.message} (${consecutiveFailuresRef.current} consecutive failures — reset required)`
+            : data.message);
           setLoading(false);
+          // The warm session is now known-bad. Clear every flag that
+          // would make the NEXT trade attempt try to reuse it — without
+          // this, `sessionWarm=true` would survive an auth failure and
+          // dispatchTradeToWarmSession would silently postMessage into a
+          // dead page, cascading failures across every subsequent trade.
+          setSessionWarm(false);
+          setSessionPlatform(null);
+          if (tradeConfig?.platform) markSessionWarm(tradeConfig.platform, false);
+          if (keepAliveTimerRef.current) { clearTimeout(keepAliveTimerRef.current); keepAliveTimerRef.current = null; }
           break;
         case 'error':
           console.log('Trading error:', data.message);
           stopHeartbeat();
-          setError(data.message);
+          consecutiveFailuresRef.current += 1;
+          setError(consecutiveFailuresRef.current >= CONSECUTIVE_FAILURE_LIMIT
+            ? `${data.message} (${consecutiveFailuresRef.current} consecutive failures — reset required)`
+            : data.message);
           setLoading(false);
+          // Same rationale as authentication_failed — invalidate the warm
+          // session so the next signal cold-starts instead of cascading.
+          setSessionWarm(false);
+          setSessionPlatform(null);
+          if (tradeConfig?.platform) markSessionWarm(tradeConfig.platform, false);
+          if (keepAliveTimerRef.current) { clearTimeout(keepAliveTimerRef.current); keepAliveTimerRef.current = null; }
           break;
         case 'trade_executed':
           console.log('Trade executed:', data.message);
@@ -1440,6 +1480,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           setTradeExecuted(true);
           setLoading(false);
           resetKeepAliveTimer();
+          consecutiveFailuresRef.current = 0;
           break;
         default:
           if (data.message && typeof data.message === 'string') {
@@ -1518,9 +1559,16 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
   // Reset state when modal opens and cleanup when closing
   useEffect(() => {
     if (visible) {
-      // If we have a warm session on the same platform, reuse it
-      if (sessionWarm && sessionPlatform === tradeConfig?.platform && signal) {
-        console.log('[TradingWebView] Reusing warm session for', signal.asset);
+      // Freshness check: if the last message from the warm session is
+      // older than STALE_THRESHOLD_MS, treat the session as dead and
+      // cold-start. Without this we dispatched blindly into a possibly
+      // dead iframe and every subsequent trade failed silently.
+      const STALE_THRESHOLD_MS = 30_000;
+      const fresh = Date.now() - lastUpdateRef.current <= STALE_THRESHOLD_MS;
+      const canReuse = sessionWarm && sessionPlatform === tradeConfig?.platform && signal && fresh;
+
+      if (canReuse) {
+        console.log('[TradingWebView] Reusing warm session for', signal!.asset);
         setError(null);
         setTradeExecuted(false);
         setLoading(true);
@@ -1532,11 +1580,18 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
             console.log('[TradingWebView] Warm dispatch failed — falling back to cold start');
             setSessionWarm(false);
             setSessionPlatform(null);
+            if (tradeConfig?.platform) markSessionWarm(tradeConfig.platform, false);
             setCurrentStep('Initializing...');
             startHeartbeat();
           }
         }, 100);
       } else {
+        if (sessionWarm && !fresh) {
+          console.log('[TradingWebView] Warm session stale — forcing cold start');
+          setSessionWarm(false);
+          setSessionPlatform(null);
+          if (tradeConfig?.platform) markSessionWarm(tradeConfig.platform, false);
+        }
         // Cold start: new session
         setLoading(true);
         setError(null);
@@ -1551,7 +1606,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         cleanupMT5WebView();
       }
     }
-  }, [visible, tradeConfig, signal, sessionWarm, sessionPlatform, cleanupMT5WebView, startHeartbeat, stopHeartbeat, dispatchTradeToWarmSession]);
+  }, [visible, tradeConfig, signal, sessionWarm, sessionPlatform, cleanupMT5WebView, startHeartbeat, stopHeartbeat, dispatchTradeToWarmSession, markSessionWarm]);
 
   // Auto-dismiss toast 4 seconds after trade succeeds
   useEffect(() => {
@@ -1598,14 +1653,20 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     });
   }, [visible, signal, tradeConfig, credentials]);
 
-  // Keep rendering if session is warm (even if no current signal)
-  if (!sessionWarm && (!signal || !tradeConfig || !credentials)) {
+  // Keep rendering if session is warm (even if no current signal) or if
+  // we're in silent-warmup mode (no signal yet but warmupRequest + creds
+  // are ready — the iframe still needs to mount to perform the login).
+  if (!sessionWarm && !isWarmup && (!signal || !tradeConfig || !credentials)) {
     console.log('TradingWebView not rendering:', {
       hasSignal: !!signal,
       hasTradeConfig: !!tradeConfig,
       hasCredentials: !!credentials,
       sessionWarm,
+      isWarmup,
     });
+    return null;
+  }
+  if (isWarmup && (!tradeConfig || !credentials)) {
     return null;
   }
 

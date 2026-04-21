@@ -1,43 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, Alert, ActivityIndicator, Image, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '@/providers/app-provider';
 import { apiService } from '@/services/api';
 
 export default function LicenseScreen() {
   const [licenseKey, setLicenseKey] = useState<string>('');
   const [isActivating, setIsActivating] = useState<boolean>(false);
-  const { addEA, eas, glowColor, isHydrated } = useApp();
+  const { addEA, eas, glowColor, isHydrated, emailAuthenticated } = useApp();
   const hasActiveBots = eas.length > 0;
   const [modalVisible, setModalVisible] = useState<boolean>(false);
   const [modalTitle, setModalTitle] = useState<string>('');
   const [modalMessage, setModalMessage] = useState<string>('');
-  const [authVerified, setAuthVerified] = useState<boolean>(false);
-
-  // Belt-and-suspenders gate: if the layout-level AuthGate is ever bypassed
-  // (e.g. stale cached bundle, direct deep-link), this check re-enforces
-  // that only email-authenticated users can reach the license activation
-  // form. Unauthenticated users are kicked to /login immediately.
-  useEffect(() => {
-    if (!isHydrated) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const v = await AsyncStorage.getItem('emailAuthenticated');
-        if (cancelled) return;
-        if (v !== 'true') {
-          router.replace('/login');
-          return;
-        }
-        setAuthVerified(true);
-      } catch {
-        if (!cancelled) router.replace('/login');
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isHydrated]);
 
   const handleActivate = async () => {
     if (!licenseKey.trim()) {
@@ -118,11 +93,11 @@ export default function LicenseScreen() {
     router.back();
   };
 
-  // Block the render entirely until the direct AsyncStorage check resolves.
-  // Without this, unauthenticated users can visibly see the activation form
-  // for a frame or two before the redirect fires — and on web with a slow
-  // AsyncStorage read they could even type into it.
-  if (!isHydrated || !authVerified) {
+  // Block the render until hydration completes and the AuthGate has had a
+  // chance to evaluate. If the user somehow reached this screen without
+  // email auth, AuthGate redirects — we just refuse to paint the form in
+  // the meantime.
+  if (!isHydrated || !emailAuthenticated) {
     return <SafeAreaView style={styles.container} />;
   }
 
