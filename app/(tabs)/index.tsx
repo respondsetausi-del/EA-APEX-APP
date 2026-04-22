@@ -407,6 +407,17 @@ export default function HomeScreen() {
   const openTradePrompt = useCallback(() => {
     if (!insights || (insights.signal.action !== 'BUY' && insights.signal.action !== 'SELL')) return;
     setTradeError(null);
+
+    // No platform configured at all → don't bother opening the confirm
+    // modal, send the user straight to the metatrader tab so they can set
+    // up MT5 (which is the default tab there).
+    if (!hasMt4Account && !hasMt5Account) {
+      setSynapseOpen(false);
+      resetScanner();
+      router.push('/(tabs)/metatrader');
+      return;
+    }
+
     const nextSymbol = (tradeSymbol || quickPickSymbols[0] || '').trim().toUpperCase();
     const cfg = lookupSymbolConfig(nextSymbol);
     const nextLot = tradeLot.trim() || cfg?.lot || '0.01';
@@ -427,7 +438,7 @@ export default function HomeScreen() {
     setTradeCount(nextCount);
     setTradePlatform(nextPlatform);
     setTradePromptOpen(true);
-  }, [insights, quickPickSymbols, hasMt4Account, hasMt5Account, tradeSymbol, tradeLot, tradeCount, tradePlatform, lookupSymbolConfig]);
+  }, [insights, quickPickSymbols, hasMt4Account, hasMt5Account, tradeSymbol, tradeLot, tradeCount, tradePlatform, lookupSymbolConfig, resetScanner]);
 
   const handleExecuteTrade = useCallback(() => {
     if (!insights) return;
@@ -1701,9 +1712,22 @@ export default function HomeScreen() {
                   </View>
 
                   {tradeError && (
-                    <View style={[styles.tradePromptError, { borderColor: '#FF4D4D' }]}>
-                      <Text style={styles.tradePromptErrorText}>{tradeError}</Text>
-                    </View>
+                    <TouchableOpacity
+                      activeOpacity={!hasMt4Account && !hasMt5Account ? 0.7 : 1}
+                      onPress={() => {
+                        if (hasMt4Account || hasMt5Account) return;
+                        setTradePromptOpen(false);
+                        setSynapseOpen(false);
+                        resetScanner();
+                        router.push('/(tabs)/metatrader');
+                      }}
+                      style={[styles.tradePromptError, { borderColor: '#FF4D4D' }]}
+                    >
+                      <Text style={styles.tradePromptErrorText}>
+                        {tradeError}
+                        {!hasMt4Account && !hasMt5Account ? '  →  Tap to set up MT5' : ''}
+                      </Text>
+                    </TouchableOpacity>
                   )}
 
                   <View style={styles.tradePromptActions}>
