@@ -581,11 +581,17 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       return;
     }
 
+    // Background verification only kicks for payment-related revocations.
+    // device_mismatch is intentionally excluded here: the backend can
+    // transiently return it after an admin device reset (while the row is
+    // being rebound), and enforcing it on every refresh was kicking users
+    // with valid fingerprints. Device ownership is still enforced at the
+    // explicit login step (see app/login.tsx) — that's the right place
+    // to surface it, with user-facing messaging.
     const revoked =
       account.status === 'not_found' ||
       !account.paid ||
-      (account as any).expired ||
-      (account as any).device_mismatch;
+      (account as any).expired;
 
     if (!revoked) {
       if (subscriptionFailuresRef.current > 0) {
@@ -607,7 +613,6 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       status: account.status,
       paid: account.paid,
       expired: (account as any).expired,
-      device_mismatch: (account as any).device_mismatch,
     });
 
     if (n >= SUBSCRIPTION_KICK_THRESHOLD) {
