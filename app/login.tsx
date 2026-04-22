@@ -97,7 +97,15 @@ export default function LoginScreen() {
       // Mark that email authentication was successful (context update + persisted)
       await setEmailAuthenticated(true);
       setUser({ mentorId: trimmedMentor, email: account.email });
-      router.push('/license');
+      // Returning users with a saved license skip the /license detour —
+      // sending them through it was the cause of the "login appears twice"
+      // flash where the license screen briefly rendered before the auth-gate
+      // effect bounced them to tabs. Route directly based on EA state.
+      if (eas.length > 0) {
+        router.replace('/(tabs)');
+      } else {
+        router.replace('/license');
+      }
     } catch (error) {
       console.error('Login error:', error);
       Alert.alert('Error', error instanceof Error ? error.message : 'Login failed. Please try again.');

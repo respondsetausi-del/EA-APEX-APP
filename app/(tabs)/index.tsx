@@ -72,7 +72,10 @@ export default function HomeScreen() {
   const [tradePromptOpen, setTradePromptOpen] = useState<boolean>(false);
   const [tradeSymbol, setTradeSymbol] = useState<string>('');
   const [tradeLot, setTradeLot] = useState<string>('0.01');
-  const [tradeCount, setTradeCount] = useState<string>('1');
+  // Empty by default so we can tell "user hasn't typed anything yet" apart
+  // from a deliberate "1". When blank, the scanner falls back to the
+  // configured default for the chosen symbol on execute.
+  const [tradeCount, setTradeCount] = useState<string>('');
   const [tradePlatform, setTradePlatform] = useState<'MT4' | 'MT5'>('MT4');
   const [tradeError, setTradeError] = useState<string | null>(null);
   // Auto-detected SL / TP (pip-distance recommendations) derived from the
@@ -397,16 +400,20 @@ export default function HomeScreen() {
   }, [insights, pickedImage, quickPickSymbols, detectSymbolFromAsset, deriveSLTPPips]);
 
   // Pick a sensible default platform: prefer an already-configured account.
-  // When a symbol is picked, its saved lot / count / platform are used as
-  // the starting values. When Auto-Trade is on and we have a valid setup,
-  // the trade fires immediately without opening the confirm sheet.
+  // The confirm modal always opens so the user has a chance to enter their
+  // own number of trades. User input wins over the symbol's configured
+  // default; if they leave it blank we fall back to the symbol default on
+  // execute.
   const openTradePrompt = useCallback(() => {
     if (!insights || (insights.signal.action !== 'BUY' && insights.signal.action !== 'SELL')) return;
     setTradeError(null);
     const nextSymbol = (tradeSymbol || quickPickSymbols[0] || '').trim().toUpperCase();
     const cfg = lookupSymbolConfig(nextSymbol);
-    const nextLot = cfg?.lot || tradeLot || '0.01';
-    const nextCount = cfg?.count || tradeCount || '1';
+    const nextLot = tradeLot.trim() || cfg?.lot || '0.01';
+    // Do NOT overwrite a count the user already typed. Pre-fill only when
+    // the field is empty so the symbol default shows as a hint they can
+    // accept or edit.
+    const nextCount = tradeCount.trim() || cfg?.count || '';
     const nextPlatform: 'MT4' | 'MT5' =
       cfg?.platform === 'MT4' && hasMt4Account ? 'MT4'
       : cfg?.platform === 'MT5' && hasMt5Account ? 'MT5'
@@ -419,32 +426,8 @@ export default function HomeScreen() {
     setTradeLot(nextLot);
     setTradeCount(nextCount);
     setTradePlatform(nextPlatform);
-
-    // One-click confirm: if the auto-discovered symbol + configured lot /
-    // count are valid, fire the trade without opening the confirm sheet.
-    // Previously this required the global autoTradeEnabled toggle — the
-    // scanner CTA itself is an explicit user confirmation, so the toggle
-    // is no longer a gate. Falls back to the modal when a symbol isn't
-    // picked yet or the values are invalid so the user can fix them.
-    const count = parseInt(nextCount, 10);
-    const lot = parseFloat(nextLot);
-    if (nextSymbol && isFinite(lot) && lot > 0 && isFinite(count) && count >= 1 && count <= 50) {
-      const result = placeManualTrade({
-        symbol: nextSymbol,
-        action: insights.signal.action,
-        lot,
-        count,
-        platform: nextPlatform,
-      });
-      if (result.ok) {
-        setSynapseOpen(false);
-        resetScanner();
-        return;
-      }
-      setTradeError(result.error || 'Could not place trade.');
-    }
     setTradePromptOpen(true);
-  }, [insights, quickPickSymbols, hasMt4Account, hasMt5Account, tradeSymbol, tradeLot, tradeCount, tradePlatform, lookupSymbolConfig, placeManualTrade, resetScanner]);
+  }, [insights, quickPickSymbols, hasMt4Account, hasMt5Account, tradeSymbol, tradeLot, tradeCount, tradePlatform, lookupSymbolConfig]);
 
   const handleExecuteTrade = useCallback(() => {
     if (!insights) return;
@@ -463,7 +446,11 @@ export default function HomeScreen() {
       setTradeError('Lot size must be a positive number.');
       return;
     }
-    const count = parseInt(tradeCount, 10);
+    // If the user left the count blank, fall back to the number of trades
+    // configured for that symbol; then to 1 as a final safety net.
+    const cfg = lookupSymbolConfig(symbol);
+    const rawCount = tradeCount.trim() || cfg?.count || '1';
+    const count = parseInt(rawCount, 10);
     if (!isFinite(count) || count < 1 || count > 50) {
       setTradeError('Number of trades must be between 1 and 50.');
       return;
@@ -484,7 +471,7 @@ export default function HomeScreen() {
     // Close the scanner modal so the trading WebView is unobstructed.
     setSynapseOpen(false);
     resetScanner();
-  }, [insights, tradeSymbol, tradeLot, tradeCount, tradePlatform, placeManualTrade, resetScanner]);
+  }, [insights, tradeSymbol, tradeLot, tradeCount, tradePlatform, placeManualTrade, resetScanner, lookupSymbolConfig]);
 
   // ── Tier 1 animations ────────────────────────────────────────────────
   // Pulsing glow on the signal card while a result is visible.
@@ -1677,7 +1664,7 @@ export default function HomeScreen() {
                         value={tradeCount}
                         onChangeText={t => { setTradeCount(t.replace(/[^0-9]/g, '')); setTradeError(null); }}
                         keyboardType="number-pad"
-                        placeholder="1"
+                        placeholder={lookupSymbolConfig(tradeSymbol)?.count || '1'}
                         placeholderTextColor="#4A5568"
                         style={[styles.tradePromptInput, { borderColor: glowColor + '66', color: '#FFF' }]}
                       />
