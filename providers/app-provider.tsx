@@ -665,6 +665,13 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   }, []);
 
   const setUser = useCallback(async (newUser: User) => {
+    // Login just validated against /check-email, so the background
+    // verifySubscription effect doesn't need to re-ask the same question
+    // a moment later — that re-ask was the source of the rare false
+    // 3-strike kick that sent freshly-logged-in users back to /login.
+    // Session restores from AsyncStorage still run the check once on
+    // mount, since setUser isn't called there.
+    hasVerifiedThisSessionRef.current = true;
     setUserState(newUser);
     try {
       await AsyncStorage.setItem('user', JSON.stringify(newUser));
