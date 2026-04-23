@@ -60,34 +60,58 @@ function writeLocalStorageId(id: string): void {
   } catch {}
 }
 
+// Distinguish "storage returned null" (fresh install → mint is safe) from
+// "storage threw" (transient failure → minting would overwrite the bound
+// id and trigger a permanent device_mismatch on the server).
+async function readAsyncStorageIdWithRetry(): Promise<
+  { ok: true; value: string | null } | { ok: false }
+> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const value = await AsyncStorage.getItem(DEVICE_ID_KEY);
+      return { ok: true, value };
+    } catch {
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 100 * (attempt + 1)));
+      }
+    }
+  }
+  return { ok: false };
+}
+
 async function getOrCreateDeviceId(): Promise<string> {
   if (cachedDeviceId) return cachedDeviceId;
 
-  let asyncStored: string | null = null;
-  try {
-    asyncStored = await AsyncStorage.getItem(DEVICE_ID_KEY);
-  } catch {
-    asyncStored = null;
-  }
-
+  const asyncResult = await readAsyncStorageIdWithRetry();
   const localStored = readLocalStorageId();
 
-  if (asyncStored) {
-    if (!localStored) writeLocalStorageId(asyncStored);
-    cachedDeviceId = asyncStored;
-    return asyncStored;
+  if (asyncResult.ok) {
+    if (asyncResult.value) {
+      if (!localStored) writeLocalStorageId(asyncResult.value);
+      cachedDeviceId = asyncResult.value;
+      return asyncResult.value;
+    }
+    if (localStored) {
+      try { await AsyncStorage.setItem(DEVICE_ID_KEY, localStored); } catch {}
+      cachedDeviceId = localStored;
+      return localStored;
+    }
+    const deviceId = `${Platform.OS}-${generateUUID()}`;
+    try { await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId); } catch {}
+    writeLocalStorageId(deviceId);
+    cachedDeviceId = deviceId;
+    return deviceId;
   }
+
+  // AsyncStorage threw on every retry. NEVER mint — that rewrites the
+  // server-bound id and puts the user in permanent device_mismatch.
+  // Fall back to localStorage if present, else surface the failure so
+  // the caller retries instead of silently changing device identity.
   if (localStored) {
-    try { await AsyncStorage.setItem(DEVICE_ID_KEY, localStored); } catch {}
     cachedDeviceId = localStored;
     return localStored;
   }
-
-  const deviceId = `${Platform.OS}-${generateUUID()}`;
-  try { await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId); } catch {}
-  writeLocalStorageId(deviceId);
-  cachedDeviceId = deviceId;
-  return deviceId;
+  throw new Error('Device fingerprint unavailable — please retry');
 }
 
 // ── Types ───────────────────────────────────────────────────
@@ -201,6 +225,13 @@ class ApiService {
         ? ''
         : ' Set EXPO_PUBLIC_API_BASE_URL to your API host for native builds.';
       throw new Error(`Network error contacting auth service.${hint}`);
+    }
+
+    // Non-2xx means the proxy couldn't reach PHP (or PHP refused). Treat
+    // that as transient so the background check's catch-branch fires and
+    // no "revoked" signal is synthesized from an upstream outage.
+    if (!res.ok) {
+      throw new Error(`Auth service unavailable (status ${res.status})`);
     }
 
     let data: {
