@@ -23,7 +23,7 @@ import { useApp } from '@/providers/app-provider';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle, heroHidden, scannerOpenRequest, autoTradeEnabled } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle, heroHidden, scannerOpenRequest, autoTradeEnabled, setEmailAuthenticated } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -593,7 +593,13 @@ export default function HomeScreen() {
       // /license — which is exactly the hole that was letting non-paying
       // users land on the activation form.
       console.log('Start Now pressed, navigating to login...');
-      await AsyncStorage.removeItem('emailAuthenticated');
+      // Use the provider setter so in-memory context and AsyncStorage
+      // stay in lock-step. Raw AsyncStorage.removeItem left the context
+      // flag stuck at true, producing a split-brain where storage said
+      // "logged out" but AuthGate still saw "logged in" until the next
+      // hydration — which on the NEXT cold start would then kick the
+      // user to /login because storage wins at hydration time.
+      await setEmailAuthenticated(false);
       router.push('/login');
     } catch (error) {
       console.error('Error navigating:', error);

@@ -161,7 +161,7 @@ interface AppState {
   /** Fire a credential-injection login for the given platform without
    *  executing any trade. Returns true if a warmup was dispatched. */
   warmTerminalSession: (platform?: 'MT4' | 'MT5') => boolean;
-  setUser: (user: User) => void;
+  setUser: (user: User) => Promise<void>;
   addEA: (ea: EA) => Promise<boolean>;
   removeEA: (id: string) => Promise<boolean>;
   setActiveEA: (id: string) => Promise<void>;
@@ -519,6 +519,16 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         setEmailAuthenticatedState(true);
       }
 
+      // Cold restore with a real user present: skip the immediate
+      // background subscription check. The user authenticated at some
+      // prior explicit login; re-asking upstream on every cold start
+      // was the kick vector — any transient "not_found / !paid" from
+      // a flaky proxy wiped the session. Real revocation still takes
+      // effect at the next explicit login.
+      if (userData.status === 'fulfilled' && userData.value) {
+        hasVerifiedThisSessionRef.current = true;
+      }
+
       console.log('Persisted data loading completed');
     } catch (error) {
       console.error('Critical error loading persisted data:', error);
@@ -581,17 +591,15 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       return;
     }
 
-    // Background verification only kicks for payment-related revocations.
-    // device_mismatch is intentionally excluded here: the backend can
-    // transiently return it after an admin device reset (while the row is
-    // being rebound), and enforcing it on every refresh was kicking users
-    // with valid fingerprints. Device ownership is still enforced at the
-    // explicit login step (see app/login.tsx) — that's the right place
-    // to surface it, with user-facing messaging.
-    const revoked =
-      account.status === 'not_found' ||
-      !account.paid ||
-      (account as any).expired;
+    // Background verification only kicks on the ONE deterministic
+    // server signal: expired:1. Everything else (not_found, !paid,
+    // device_mismatch) is excluded because the upstream PHP is flaky
+    // enough that these false-trigger on outages — and our proxy used
+    // to even synthesize { found:0, paid:0 } on unreachable upstream,
+    // which is indistinguishable from a real revocation. Explicit
+    // login still enforces the full set (see app/login.tsx) with
+    // user-visible messaging — that's the right place.
+    const revoked = (account as any).expired === true;
 
     if (!revoked) {
       if (subscriptionFailuresRef.current > 0) {

@@ -53,9 +53,14 @@ export async function POST(request: Request): Promise<Response> {
         return Response.json(data);
     } catch (error) {
         console.error('check-email proxy error:', error);
+        // Return 503 (not faked zeros) so the client treats upstream
+        // failure as transient and doesn't count it as a revocation
+        // signal. Faking { paid:0, found:0 } here was indistinguishable
+        // from a real "subscription revoked" response and fed the
+        // background check's 3-strike kick.
         return Response.json(
-            { found: 0, used: 0, paid: 0, invalidMentor: 0, expired: 0, device_mismatch: 0 },
-            { status: 200 }
+            { error: 'auth upstream unavailable', transient: true },
+            { status: 503 }
         );
     }
 }

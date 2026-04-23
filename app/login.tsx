@@ -94,9 +94,13 @@ export default function LoginScreen() {
       }
 
       // Allow only existing + not used
-      // Mark that email authentication was successful (context update + persisted)
+      // Mark that email authentication was successful (context update + persisted).
+      // Both writes are awaited so the user record is on disk before the
+      // redirect — if the app is killed during the navigation transition,
+      // the next cold start still finds a complete { user, emailAuthenticated }
+      // pair and doesn't kick the user back to /login.
       await setEmailAuthenticated(true);
-      setUser({ mentorId: trimmedMentor, email: account.email });
+      await setUser({ mentorId: trimmedMentor, email: account.email });
       // Returning users with a saved license skip the /license detour —
       // sending them through it was the cause of the "login appears twice"
       // flash where the license screen briefly rendered before the auth-gate
