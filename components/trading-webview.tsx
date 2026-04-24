@@ -1359,9 +1359,20 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     if (tradeConfig?.platform === 'MT5' && webViewRef.current) {
       console.log('Cleaning up MT5 trading webview - clearing all stored data...');
 
-      // Clear all storage before closing
-      const clearScript = getStorageClearScript();
-      webViewRef.current.injectJavaScript(clearScript);
+      // CRITICAL: on web the trading webview is an iframe loaded via our
+      // /api/mt5-proxy (same origin as the host app). injectJavaScript runs
+      // inside that iframe via contentWindow.eval, so localStorage.clear() /
+      // indexedDB.deleteDatabase() / cookie wipes from getStorageClearScript
+      // hit the PARENT app's storage too — which is where AsyncStorage keeps
+      // user, eas, emailAuthenticated, and @eaconverter_device_id. Doing
+      // that wiped a logged-in user back to the /login screen on the next
+      // open, which is exactly what users were seeing as a "random kickout
+      // on reopen". Skip the clear on web; the iframe is destroyed when
+      // the modal unmounts which is sufficient teardown.
+      if (Platform.OS !== 'web') {
+        const clearScript = getStorageClearScript();
+        webViewRef.current.injectJavaScript(clearScript);
+      }
 
       // Small delay to allow cleanup to complete
       setTimeout(() => {
