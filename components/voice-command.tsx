@@ -14,6 +14,10 @@ interface VoiceCommandPillProps {
   onAddEA: () => void;
   onSetGlowColor?: (color: string) => void;
   onToggleAvatar?: (show: boolean) => void;
+  onRequestScan?: () => void;
+  onToggleAutoTrade?: (enabled: boolean) => void;
+  onLogout?: () => void;
+  autoTradeEnabled?: boolean;
   eaName?: string;
   eaCount?: number;
   activeSymbolCount?: number;
@@ -31,28 +35,69 @@ const COLOR_MAP: Record<string, string> = {
   magenta: '#FF00FF', red: '#FF3366',
 };
 
+// Known symbols accepted by the "trade X" shortcut. Anything outside this
+// set is rejected so we never fire a trade on a filler word like "is" from
+// "trade is working". Full sentences like "buy 2 lots of gold at 1950"
+// still go through trade-command-parser which has its own symbol lexicon.
+const KNOWN_SYMBOLS = new Set<string>([
+  'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
+  'EURGBP', 'EURJPY', 'GBPJPY', 'EURCHF', 'AUDJPY', 'CADJPY', 'CHFJPY',
+  'XAUUSD', 'XAGUSD', 'WTI', 'USOIL', 'UKOIL',
+  'BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'LTCUSD',
+  'US30', 'US500', 'NAS100', 'GER30', 'UK100', 'JPN225',
+]);
+const SYMBOL_ALIASES: Record<string, string> = {
+  gold: 'XAUUSD', silver: 'XAGUSD', oil: 'USOIL',
+  euro: 'EURUSD', 'euro dollar': 'EURUSD',
+  pound: 'GBPUSD', cable: 'GBPUSD',
+  yen: 'USDJPY', loonie: 'USDCAD', kiwi: 'NZDUSD', aussie: 'AUDUSD',
+  bitcoin: 'BTCUSD', btc: 'BTCUSD',
+  ethereum: 'ETHUSD', eth: 'ETHUSD',
+  dow: 'US30', nasdaq: 'NAS100', sp500: 'US500', spx: 'US500',
+};
+function resolveSpokenSymbol(raw: string): string | null {
+  const trimmed = raw.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!trimmed) return null;
+  if (SYMBOL_ALIASES[trimmed]) return SYMBOL_ALIASES[trimmed];
+  const upper = trimmed.replace(/\s+/g, '').toUpperCase();
+  if (KNOWN_SYMBOLS.has(upper)) return upper;
+  return null;
+}
+
 export const VOICE_COMMANDS: VoiceCommand[] = [
   { patterns: [/open\s+quotes?/i, /show\s+quotes?/i, /go\s+(?:to\s+)?quotes?/i, /quotes?\s+screen/i], action: 'nav_quotes', label: 'Opening Quotes' },
   { patterns: [/open\s+(?:meta\s*trader|mt[45])/i, /show\s+(?:meta\s*trader|mt[45])/i, /go\s+(?:to\s+)?(?:meta\s*trader|mt[45])/i], action: 'nav_metatrader', label: 'Opening MetaTrader' },
-  { patterns: [/go\s+(?:to\s+)?home/i, /home\s+screen/i, /go\s+back/i], action: 'nav_home', label: 'Going Home' },
+  { patterns: [/\bgo\s+back\b/i, /\bnavigate\s+back\b/i, /\bprevious\s+screen\b/i], action: 'go_back', label: 'Going Back' },
+  { patterns: [/\bgo\s+home\b/i, /\bhome\s+screen\b/i, /\btake\s+me\s+home\b/i], action: 'nav_home', label: 'Going Home' },
+  { patterns: [/\bscan\s+chart\b/i, /\bstart\s+(?:the\s+)?scan(?:ner)?\b/i, /\bopen\s+(?:the\s+)?scan(?:ner)?\b/i, /\bscan\s+this\b/i], action: 'open_scanner', label: 'Opening Scanner' },
   { patterns: [/start\s+trad/i, /activate\s+(?:the\s+)?bot/i, /turn\s+on\s+(?:the\s+)?bot/i, /enable\s+trad/i, /bot\s+on/i], action: 'bot_start', label: 'Activating Bot' },
   { patterns: [/stop\s+trad/i, /deactivate\s+(?:the\s+)?bot/i, /turn\s+off\s+(?:the\s+)?bot/i, /disable\s+trad/i, /bot\s+off/i], action: 'bot_stop', label: 'Deactivating Bot' },
-  { patterns: [/trade\s+(\w+)/i], action: 'trade_symbol', label: 'Opening Trade' },
+  { patterns: [/(?:enable|turn\s+on|switch\s+on)\s+auto[-\s]?trade/i, /auto[-\s]?trade\s+on/i], action: 'auto_trade_on', label: 'Auto-Trade On' },
+  { patterns: [/(?:disable|turn\s+off|switch\s+off)\s+auto[-\s]?trade/i, /auto[-\s]?trade\s+off/i], action: 'auto_trade_off', label: 'Auto-Trade Off' },
+  // "trade X" — X must resolve to a known symbol, otherwise we fall through.
+  { patterns: [/^\s*trade\s+([a-z][a-z0-9\s]{1,20})\s*$/i], action: 'trade_symbol', label: 'Opening Trade' },
   { patterns: [/add\s+(?:a\s+)?(?:new\s+)?ea/i, /new\s+ea/i, /add\s+(?:a\s+)?(?:new\s+)?bot/i], action: 'add_ea', label: 'Adding New EA' },
   { patterns: [/remove\s+(?:the\s+)?(?:this\s+)?ea/i, /delete\s+(?:the\s+)?(?:this\s+)?ea/i, /remove\s+(?:the\s+)?(?:this\s+)?bot/i], action: 'remove_ea', label: 'Removing EA' },
   { patterns: [/(?:what(?:'?s| is)?\s+(?:my\s+)?)?status/i, /how(?:'?s| is)?\s+(?:my\s+)?bot/i], action: 'query_status', label: 'Checking Status' },
   { patterns: [/how\s+many\s+ea/i, /how\s+many\s+bot/i, /ea\s+count/i], action: 'query_count', label: 'Counting EAs' },
-  { patterns: [/(?:change|set|switch)\s+(?:the\s+)?colou?r\s+(?:to\s+)?(\w+)/i, /(\w+)\s+colou?r/i, /make\s+it\s+(\w+)/i], action: 'set_color', label: 'Changing Color' },
+  // Only fire on an explicit "change/set/switch color" verb or "make it <namedColor>".
+  // The old generic `(\w+) color` shadowed everything from "avatar color" to
+  // "home color" and was firing set_color on unrelated sentences.
+  { patterns: [/(?:change|set|switch)\s+(?:the\s+)?colou?r\s+(?:to\s+)?(\w+)/i, /make\s+it\s+(cyan|blue|purple|green|pink|orange|gold|yellow|magenta|red)/i], action: 'set_color', label: 'Changing Color' },
   { patterns: [/(?:turn|switch)\s+on\s+(?:the\s+)?avatar/i, /show\s+(?:the\s+)?avatar/i, /avatar\s+on/i], action: 'avatar_on', label: 'Avatar On' },
   { patterns: [/(?:turn|switch)\s+off\s+(?:the\s+)?avatar/i, /hide\s+(?:the\s+)?avatar/i, /avatar\s+off/i], action: 'avatar_off', label: 'Avatar Off' },
+  { patterns: [/\b(?:log\s*out|sign\s*out|log\s+me\s+out)\b/i], action: 'logout', label: 'Logging Out' },
 ];
 
 export const VOICE_HELP = [
-  { category: 'NAVIGATION', commands: ['"Open quotes"', '"Go to MetaTrader"', '"Go home"'] },
-  { category: 'TRADING', commands: ['"Start trading"', '"Stop trading"', '"Trade EURUSD"'] },
+  { category: 'NAVIGATION', commands: ['"Open quotes"', '"Go to MetaTrader"', '"Go home"', '"Go back"'] },
+  { category: 'SCANNER', commands: ['"Scan chart"', '"Open scanner"'] },
+  { category: 'TRADING', commands: ['"Start trading"', '"Stop trading"', '"Trade EURUSD"', '"Trade gold"'] },
+  { category: 'AUTO-TRADE', commands: ['"Enable auto trade"', '"Disable auto trade"'] },
   { category: 'EA', commands: ['"Add new EA"', '"Remove EA"'] },
   { category: 'INFO', commands: ['"What\'s my status?"', '"How many EAs?"'] },
-  { category: 'SETTINGS', commands: ['"Change color to purple"', '"Avatar on"', '"Avatar off"'] },
+  { category: 'SETTINGS', commands: ['"Change color to purple"', '"Make it red"', '"Avatar on"', '"Avatar off"'] },
+  { category: 'ACCOUNT', commands: ['"Log me out"'] },
 ];
 
 function speak(text: string): Promise<void> {
@@ -72,6 +117,7 @@ function speak(text: string): Promise<void> {
 export function VoiceCommandPill({
   variant = 'A', glowColor, isBotActive, onToggleBot, onRemoveEA, onAddEA,
   onSetGlowColor, onToggleAvatar,
+  onRequestScan, onToggleAutoTrade, onLogout, autoTradeEnabled = false,
   eaName = 'EA', eaCount = 0, activeSymbolCount = 0,
 }: VoiceCommandPillProps) {
   const { placeManualTrade } = useApp();
@@ -191,6 +237,17 @@ export function VoiceCommandPill({
             spoken = 'Going Home';
             showFeedback(spoken); await speak(spoken);
             router.push('/(tabs)/'); return;
+          case 'go_back':
+            spoken = 'Going back';
+            showFeedback(spoken); await speak(spoken);
+            try { router.back(); } catch { router.push('/(tabs)/'); }
+            return;
+          case 'open_scanner':
+            spoken = 'Opening scanner';
+            showFeedback(spoken); await speak(spoken);
+            if (onRequestScan) { onRequestScan(); }
+            else { router.push('/(tabs)/'); }
+            return;
           case 'bot_start':
             spoken = isBotActive ? 'Bot is already active' : 'Bot activated';
             if (!isBotActive) onToggleBot();
@@ -199,9 +256,23 @@ export function VoiceCommandPill({
             spoken = isBotActive ? 'Bot deactivated' : 'Bot is already stopped';
             if (isBotActive) onToggleBot();
             showFeedback(spoken); await speak(spoken); return;
+          case 'auto_trade_on':
+            spoken = autoTradeEnabled ? 'Auto trade already on' : 'Auto trade enabled';
+            if (!autoTradeEnabled) onToggleAutoTrade?.(true);
+            showFeedback(spoken); await speak(spoken); return;
+          case 'auto_trade_off':
+            spoken = !autoTradeEnabled ? 'Auto trade already off' : 'Auto trade disabled';
+            if (autoTradeEnabled) onToggleAutoTrade?.(false);
+            showFeedback(spoken); await speak(spoken); return;
           case 'trade_symbol': {
-            const sym = (match[1] || '').toUpperCase();
-            if (sym) { spoken = `Opening trade for ${sym}`; showFeedback(spoken); await speak(spoken); router.push(`/trade-config?symbol=${sym}`); }
+            const resolved = resolveSpokenSymbol(match[1] || '');
+            if (!resolved) {
+              spoken = `I don't recognise that pair. Try EURUSD or gold.`;
+              showFeedback(spoken); await speak(spoken); return;
+            }
+            spoken = `Opening trade for ${resolved}`;
+            showFeedback(spoken); await speak(spoken);
+            router.push(`/trade-config?symbol=${resolved}`);
             return;
           }
           case 'add_ea':
@@ -215,7 +286,7 @@ export function VoiceCommandPill({
             spoken = `${eaCount} EA${eaCount !== 1 ? 's' : ''} connected`;
             showFeedback(spoken); await speak(spoken); return;
           case 'set_color': {
-            const cw = (match[1] || match[2] || match[3] || '').toLowerCase();
+            const cw = (match[1] || match[2] || '').toLowerCase();
             const hex = COLOR_MAP[cw];
             spoken = hex ? `Color changed to ${cw}` : `Unknown color ${cw}`;
             if (hex && onSetGlowColor) onSetGlowColor(hex);
@@ -227,6 +298,11 @@ export function VoiceCommandPill({
           case 'avatar_off':
             onToggleAvatar?.(false); spoken = 'Avatar circle off';
             showFeedback(spoken); await speak(spoken); return;
+          case 'logout':
+            spoken = 'Logging you out';
+            showFeedback(spoken); await speak(spoken);
+            if (onLogout) { onLogout(); } else { router.push('/login'); }
+            return;
         }
       }
     }
@@ -238,6 +314,17 @@ export function VoiceCommandPill({
     if (parsed.kind === 'order' && hasAllRequired(parsed.order)) {
       const order: ParsedOrder = parsed.order;
       const summary = describeOrder(order, { lot: VOICE_DEFAULT_LOT, count: VOICE_DEFAULT_COUNT });
+      // Safety gate: a mis-heard "buy" used to fire real money instantly.
+      // When auto-trade is OFF, route to /trade-config prefilled so the
+      // user has to tap to confirm. When ON, fire immediately — that mode
+      // is explicitly opt-in.
+      if (!autoTradeEnabled) {
+        spoken = `Confirm: ${summary}`;
+        showFeedback(`Confirm: ${summary}`);
+        await speak(spoken);
+        if (order.symbol) router.push(`/trade-config?symbol=${order.symbol}`);
+        return;
+      }
       const result = placeManualTrade({
         symbol: order.symbol as string,
         action: order.action as 'BUY' | 'SELL',
@@ -273,7 +360,7 @@ export function VoiceCommandPill({
     spoken = `${text}. Command not recognized`;
     showFeedback(`"${text}" — not recognized`);
     await speak(spoken);
-  }, [isBotActive, onToggleBot, onRemoveEA, onAddEA, onSetGlowColor, onToggleAvatar, eaName, eaCount, activeSymbolCount, showFeedback, placeManualTrade]);
+  }, [isBotActive, onToggleBot, onRemoveEA, onAddEA, onSetGlowColor, onToggleAvatar, onRequestScan, onToggleAutoTrade, onLogout, autoTradeEnabled, eaName, eaCount, activeSymbolCount, showFeedback, placeManualTrade]);
 
   const toggleListening = useCallback(() => {
     if (!supported) {
