@@ -23,7 +23,7 @@ import { useApp } from '@/providers/app-provider';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle, heroHidden, scannerOpenRequest, autoTradeEnabled, setEmailAuthenticated } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle, heroHidden, scannerOpenRequest, autoTradeEnabled, setAutoTradeEnabled, setEmailAuthenticated, requestOpenScanner } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -1040,6 +1040,10 @@ export default function HomeScreen() {
         variant={voiceStyle} glowColor={glowColor} isBotActive={isBotActive}
         onToggleBot={() => setBotActive(!isBotActive)} onRemoveEA={handleRemoveActiveBot} onAddEA={handleAddNewEA}
         onSetGlowColor={setGlowColor} onToggleAvatar={setShowHeroAvatar}
+        onRequestScan={requestOpenScanner}
+        onToggleAutoTrade={setAutoTradeEnabled}
+        onLogout={async () => { await setEmailAuthenticated(false); router.replace('/login'); }}
+        autoTradeEnabled={autoTradeEnabled}
         eaName={primaryEA?.name || 'EA'} eaCount={eas.length} activeSymbolCount={totalSymbols}
       />
     </View>
