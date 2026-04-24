@@ -1085,50 +1085,6 @@ export default function MetaTraderScreen() {
     }
   };
 
-  const getStorageClearScript = () => {
-    return `
-      (async function() {
-        try {
-          try { localStorage.clear(); } catch(e) {}
-          try { sessionStorage.clear(); } catch(e) {}
-          try {
-            if (indexedDB && indexedDB.databases) {
-              const dbs = await indexedDB.databases();
-              for (const db of dbs) {
-                const name = (db && db.name) ? db.name : null;
-                if (name) {
-                  try { indexedDB.deleteDatabase(name); } catch(e) {}
-                }
-              }
-            }
-          } catch(e) {}
-          try {
-            if ('caches' in window) {
-              const names = await caches.keys();
-              for (const n of names) { try { await caches.delete(n); } catch(e) {} }
-            }
-          } catch(e) {}
-          try {
-            if ('serviceWorker' in navigator) {
-              const regs = await navigator.serviceWorker.getRegistrations();
-              for (const r of regs) { try { await r.unregister(); } catch(e) {} }
-            }
-          } catch(e) {}
-          try {
-            if (document && document.cookie) {
-              document.cookie.split(';').forEach(function(c){
-                const eq = c.indexOf('=');
-                const name = eq > -1 ? c.substr(0, eq) : c;
-                document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
-              });
-            }
-          } catch(e) {}
-        } catch(e) {}
-        true;
-      })();
-    `;
-  };
-
   const getAuthenticationScript = (loginData: { login: string; password: string; server: string }) => {
     if (activeTab === 'MT5') {
       return `
