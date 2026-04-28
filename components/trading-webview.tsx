@@ -2015,19 +2015,20 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: '#000',
   },
-  // Invisible WebView — kept inside the viewport but visually hidden.
-  // Chrome throttles iframes positioned far offscreen (top:-10000) and
-  // skips rendering parts of MT5 web, including the One-Click BUY/SELL
-  // toolbar — which was breaking the fast-trade path. We instead pin
-  // the container at top-left, 1x1, opacity:0 with overflow:hidden so
-  // it stays in the active viewport without being visible. The iframe
-  // inside still gets a real 1280x800 desktop viewport.
+  // Invisible WebView — full-screen behind the app UI.
+  // Earlier versions tucked the iframe into a 1×1 box at top:-10000 to
+  // hide it, but Chrome throttles offscreen / sub-pixel iframes and
+  // MT5 web responds by skipping desktop UI (including the One-Click
+  // BUY/SELL toolbar that the fast-trade path depends on). Filling the
+  // viewport with opacity:0 + pointerEvents:none + zIndex:-1 keeps the
+  // iframe a normal active layer that the browser renders fully, while
+  // the user sees and clicks straight through it.
   invisibleWebViewContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
-    width: 1,
-    height: 1,
+    right: 0,
+    bottom: 0,
     opacity: 0,
     zIndex: -1,
     overflow: 'hidden',
