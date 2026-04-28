@@ -1,6 +1,11 @@
 import React, { useRef, useEffect } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 
+// API base — empty in production (same-origin); in dev,
+// EXPO_PUBLIC_API_BASE_URL points at the Bun server (e.g. localhost:3000)
+// since Metro on :8081 only serves the SPA, not /api/* routes.
+const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+
 interface InjectableWebViewProps {
   url: string;
   script?: string;
@@ -64,7 +69,7 @@ const InjectableWebView: React.FC<InjectableWebViewProps> = ({
 
   // Create proxy URL with script injection
   const createProxyUrl = () => {
-    const proxyUrl = new URL('/api/terminal-proxy', window.location.origin);
+    const proxyUrl = new URL('/api/terminal-proxy', API_BASE || window.location.origin);
     proxyUrl.searchParams.set('url', url);
     if (script) {
       proxyUrl.searchParams.set('script', encodeURIComponent(script));

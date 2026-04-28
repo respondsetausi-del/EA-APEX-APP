@@ -149,7 +149,7 @@ const errorStyles = StyleSheet.create({
  * suspenders checks in case this gate is ever bypassed.
  */
 function AuthGate({ children }: { children: ReactNode }) {
-  const { isHydrated, eas, emailAuthenticated } = useApp();
+  const { isHydrated, eas, emailAuthenticated, isFirstTime } = useApp();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -159,9 +159,18 @@ function AuthGate({ children }: { children: ReactNode }) {
     const path = pathname || '/';
     const onLogin = path === '/login' || path.startsWith('/login');
     const onLicense = path === '/license' || path.startsWith('/license');
+    const onTabsRoot = path === '/' || path === '/(tabs)' || path.startsWith('/(tabs)');
 
     // Never redirect while already on /login — that's the safe fallback.
     if (onLogin) return;
+
+    // First-time users see the Start Now landing on tabs root before any
+    // auth gate kicks in. Once they press Start Now, isFirstTime flips
+    // false and the rules below apply.
+    if (isFirstTime) {
+      if (!onTabsRoot) router.replace('/');
+      return;
+    }
 
     if (!emailAuthenticated) {
       // Unauthenticated users MUST go to /login, no matter which route
@@ -175,7 +184,7 @@ function AuthGate({ children }: { children: ReactNode }) {
       router.replace('/license');
       return;
     }
-  }, [isHydrated, emailAuthenticated, pathname, eas.length, router]);
+  }, [isHydrated, emailAuthenticated, pathname, eas.length, router, isFirstTime]);
 
   if (!isHydrated) {
     return <View style={{ flex: 1, backgroundColor: '#000000' }} />;

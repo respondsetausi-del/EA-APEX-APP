@@ -396,8 +396,8 @@ export async function shutdownPool(): Promise<void> {
   }
 }
 
-// Graceful shutdown on process termination
-if (typeof process !== 'undefined') {
+// Graceful shutdown on process termination (server runtimes only — browser shim lacks .on)
+if (typeof process !== 'undefined' && typeof (process as any).on === 'function') {
   process.on('SIGTERM', async () => {
     console.log('📡 SIGTERM received, closing database pool...');
     await shutdownPool();

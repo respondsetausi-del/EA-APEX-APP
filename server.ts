@@ -391,8 +391,8 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
 
               // Message sending function
               const sendMessage = (type, message) => {
-                try { 
-                  window.parent.postMessage(JSON.stringify({ type, message }), '*'); 
+                try {
+                  window.parent.postMessage(JSON.stringify({ type, message }), '*');
                 } catch(e) {
                   console.log('Message send error:', e);
                 }
@@ -796,82 +796,257 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
 
                      sendMessage('step', 'Starting execution of ' + numberOfTrades + ' ${action} trade(s) for ${asset}...');
                      console.log('MT5 Trading: STRICT MODE - Target: EXACTLY', numberOfTrades, 'trades');
-                     
+
+                     // ──────────────────────────────────────────────────────
+                     // ONE-TIME SETUP — search/select symbol, then activate
+                     // the chart's one-click toolbar. Do this ONCE before
+                     // the trade loop, not on every iteration. Massive win.
+                     // ──────────────────────────────────────────────────────
+                     const setupSymbol = async () => {
+                       sendMessage('step', 'Locating ${asset}...');
+
+                       // Try direct click first — symbol might already be in
+                       // the Market Watch list. If yes, skip the search.
+                       const tryDirectSelect = () => {
+                         const razorAsset = document.querySelector('.name.svelte-19bwscl .symbol.svelte-19bwscl');
+                         if (razorAsset && razorAsset.textContent.includes('${asset}')) {
+                           razorAsset.click();
+                           console.log('MT5 Trading: Direct-selected ${asset} (already in market watch)');
+                           return true;
+                         }
+                         const allSymbols = document.querySelectorAll('[class*="symbol"]');
+                         for (let i = 0; i < allSymbols.length; i++) {
+                           const txt = allSymbols[i].textContent.trim();
+                           if (txt === '${asset}' || txt === '${asset}.mic') {
+                             allSymbols[i].click();
+                             console.log('MT5 Trading: Direct-selected ${asset} via generic selector');
+                             return true;
+                           }
+                         }
+                         return false;
+                       };
+
+                       if (tryDirectSelect()) {
+                         await new Promise(r => setTimeout(r, 400));
+                         return true;
+                       }
+
+                       // Fallback: search box then select.
+                       const searchField = document.querySelector('input[placeholder="Search symbol"]') ||
+                                           document.querySelector('input[placeholder*="Search"]') ||
+                                           document.querySelector('input[placeholder*="search"]');
+                       if (searchField) {
+                         searchField.focus();
+                         searchField.select();
+                         searchField.value = '';
+                         searchField.value = '${asset}';
+                         searchField.dispatchEvent(new Event('input', { bubbles: true }));
+                         searchField.dispatchEvent(new Event('change', { bubbles: true }));
+                         searchField.dispatchEvent(new Event('keyup', { bubbles: true }));
+                         console.log('MT5 Trading: Searched for ${asset}');
+                         await new Promise(r => setTimeout(r, 800));
+                       }
+
+                       if (tryDirectSelect()) {
+                         await new Promise(r => setTimeout(r, 400));
+                         return true;
+                       }
+
+                       // Last resort: any element matching the symbol text.
+                       const allElements = document.querySelectorAll('*');
+                       for (let i = 0; i < allElements.length; i++) {
+                         const text = allElements[i].textContent.trim();
+                         if (text === '${asset}' || text === '${asset}.mic') {
+                           const clickable = allElements[i].closest('button, [role="button"], [onclick], td, tr');
+                           if (clickable || allElements[i].tagName === 'BUTTON') {
+                             (clickable || allElements[i]).click();
+                             console.log('MT5 Trading: Selected ${asset} via text-based selector');
+                             await new Promise(r => setTimeout(r, 400));
+                             return true;
+                           }
+                         }
+                       }
+
+                       sendMessage('step', '⚠ Could not find ${asset} in symbol list');
+                       console.log('MT5 Trading: WARNING - Could not select ${asset}');
+                       return false;
+                     };
+
+                     // Find the chart's one-click BUY/SELL toolbar button.
+                     // The MT5 web terminal's one-click bar renders SELL/BUY
+                     // labels alongside their bid/ask prices. Layouts vary
+                     // (sometimes "SELL 4587.817", sometimes "4587.817 SELL",
+                     // sometimes nested spans without spaces). Match BUY/SELL
+                     // as a whole word anywhere in the label, then filter by
+                     // viewport position to lock onto the chart toolbar.
+                     const findOneClickButton = () => {
+                       const target = '${action}'; // 'BUY' or 'SELL'
+                       const opposite = target === 'BUY' ? 'SELL' : 'BUY';
+                       const candidates = [];
+                       const els = document.querySelectorAll('button, [role="button"], a, div, span');
+                       const wordRe = new RegExp('(^|[^A-Z])' + target + '($|[^A-Z])', 'i');
+                       for (let i = 0; i < els.length; i++) {
+                         const el = els[i];
+                         const raw = (el.textContent || '').trim();
+                         if (!raw) continue;
+                         const txt = raw.toUpperCase();
+                         if (txt.length > 60) continue;
+                         if (!wordRe.test(txt)) continue;
+                         // Skip elements that mention BOTH (likely a parent wrapping both sides)
+                         if (txt.indexOf(opposite) >= 0) continue;
+                         const rect = el.getBoundingClientRect();
+                         if (rect.width < 30 || rect.height < 16) continue;
+                         if (rect.top > 300) continue;
+                         candidates.push({ el, top: rect.top, txt });
+                       }
+                       if (candidates.length === 0) {
+                         console.log('MT5 Trading: One-click ' + target + ' button not found (no candidates)');
+                         return null;
+                       }
+                       // Topmost wins — chart toolbar sits above any duplicates.
+                       candidates.sort((a, b) => a.top - b.top);
+                       console.log('MT5 Trading: One-click ' + target + ' candidates:', candidates.map(c => c.txt).slice(0, 3).join(' | '));
+                       return candidates[0].el;
+                     };
+
+                     // Set the volume on the chart-toolbar one-click bar.
+                     const setOneClickVolume = (vol) => {
+                       const els = document.querySelectorAll('input, [contenteditable="true"]');
+                       for (let i = 0; i < els.length; i++) {
+                         const el = els[i];
+                         const rect = el.getBoundingClientRect();
+                         if (rect.top > 300 || rect.width === 0) continue;
+                         const v = (el.value !== undefined ? el.value : (el.textContent || '')).trim();
+                         const ctx = ((el.className || '') + ' ' + (el.getAttribute && el.getAttribute('placeholder') || '') + ' ' + ((el.closest && el.closest('[class]')||{}).className || '')).toLowerCase();
+                         const looksLikeLot = /^[0-9]+(\\.[0-9]+)?$/.test(v) && parseFloat(v) <= 1000;
+                         const hasLotContext = ctx.indexOf('volume') >= 0 || ctx.indexOf('lot') >= 0;
+                         if (looksLikeLot || hasLotContext) {
+                           try {
+                             if (el.tagName === 'INPUT') {
+                               el.focus();
+                               el.value = '';
+                               el.value = vol;
+                               el.dispatchEvent(new Event('input', { bubbles: true }));
+                               el.dispatchEvent(new Event('change', { bubbles: true }));
+                               el.dispatchEvent(new Event('blur', { bubbles: true }));
+                             } else {
+                               el.textContent = vol;
+                             }
+                             console.log('MT5 Trading: One-click volume set to ' + vol);
+                             return true;
+                           } catch (e) {}
+                         }
+                       }
+                       return false;
+                     };
+
+                     // Accept the "One Click Trading - Disclaimer" modal that
+                     // MT5 web shows the first time a toolbar BUY/SELL is
+                     // clicked. Subsequent clicks then fire orders directly.
+                     // Returns true if a disclaimer was visible & dismissed.
+                     const acceptOneClickDisclaimer = () => {
+                       // Detect the disclaimer by its title text.
+                       let disclaimerRoot = null;
+                       const allElements = document.querySelectorAll('*');
+                       for (let i = 0; i < allElements.length; i++) {
+                         const txt = (allElements[i].textContent || '');
+                         if (txt.length > 4000) continue;
+                         const lower = txt.toLowerCase();
+                         if (lower.indexOf('one click trading') >= 0 && lower.indexOf('disclaimer') >= 0) {
+                           disclaimerRoot = allElements[i];
+                           break;
+                         }
+                       }
+                       if (!disclaimerRoot) return false;
+
+                       // Tick the "I Accept these Terms and Conditions" box.
+                       const checkboxes = disclaimerRoot.querySelectorAll('input[type="checkbox"]');
+                       for (let i = 0; i < checkboxes.length; i++) {
+                         const cb = checkboxes[i];
+                         if (!cb.checked) {
+                           cb.click();
+                           console.log('MT5 Trading: Ticked one-click disclaimer checkbox');
+                         }
+                       }
+                       return true;
+                     };
+
+                     // Click the OK / Continue / Accept button on the disclaimer.
+                     const confirmOneClickDisclaimer = () => {
+                       const buttons = document.querySelectorAll('button');
+                       for (let i = 0; i < buttons.length; i++) {
+                         const btn = buttons[i];
+                         const t = (btn.textContent || '').trim().toLowerCase();
+                         if (t === 'ok' || t === 'accept' || t === 'continue' || t === 'agree' ||
+                             t.indexOf('accept') >= 0 || t.indexOf('continue') >= 0) {
+                           // Skip disabled buttons (checkbox not yet ticked)
+                           if (btn.disabled) continue;
+                           const rect = btn.getBoundingClientRect();
+                           if (rect.width === 0 || rect.height === 0) continue;
+                           btn.click();
+                           console.log('MT5 Trading: Confirmed one-click disclaimer (' + t + ')');
+                           return true;
+                         }
+                       }
+                       return false;
+                     };
+
+                     await setupSymbol();
+                     setOneClickVolume('${volume}');
+                     await new Promise(r => setTimeout(r, 300));
+
+                     // Disclaimer is handled inside the trade loop (the first
+                     // iteration's click triggers it if MT5 hasn't seen consent
+                     // yet; if consent is stored, the click places an order
+                     // directly). No probe — that double-fires when consent is
+                     // already given.
+
                      // Function to execute a single trade with enhanced tracking
                      const executeSingleTrade = async (tradeIndex) => {
                        try {
                          console.log('MT5 Trading: Starting trade', (tradeIndex + 1), 'of', numberOfTrades);
                          sendMessage('step', 'Executing trade ' + (tradeIndex + 1) + ' of ' + numberOfTrades + ' for ${asset}...');
-                         
-                         // Search for the specific asset - Universal approach
-                        const searchField = document.querySelector('input[placeholder="Search symbol"]') ||
-                                          document.querySelector('input[placeholder*="Search"]') ||
-                                          document.querySelector('input[placeholder*="search"]');
-                        if (searchField) {
-                          searchField.focus();
-                          searchField.select();
-                          searchField.value = '';
-                          searchField.value = '${asset}';
-                          searchField.dispatchEvent(new Event('input', { bubbles: true }));
-                          searchField.dispatchEvent(new Event('change', { bubbles: true }));
-                          searchField.dispatchEvent(new Event('keyup', { bubbles: true }));
-                          console.log('MT5 Trading: Searched for ${asset}');
-                          await new Promise(r => setTimeout(r, 1500));
-                        }
-                        
-                        // Select the asset - Try multiple approaches
-                        let assetSelected = false;
-                        
-                        // Try RazorMarkets selector first
-                        const razorAsset = document.querySelector('.name.svelte-19bwscl .symbol.svelte-19bwscl');
-                        if (razorAsset && razorAsset.textContent.includes('${asset}')) {
-                          razorAsset.click();
-                          assetSelected = true;
-                          console.log('MT5 Trading: Selected ${asset} using RazorMarkets selector');
-                        }
-                        
-                        // Try generic symbol selector
-                        if (!assetSelected) {
-                          const allSymbols = document.querySelectorAll('[class*="symbol"]');
-                          for (let i = 0; i < allSymbols.length; i++) {
-                            if (allSymbols[i].textContent.trim() === '${asset}' || 
-                                allSymbols[i].textContent.includes('${asset}')) {
-                              allSymbols[i].click();
-                              assetSelected = true;
-                              console.log('MT5 Trading: Selected ${asset} using generic selector');
-                              break;
-                            }
-                          }
-                        }
-                        
-                        // Try text-based search (generic and others)
-                        if (!assetSelected) {
-                          const allElements = document.querySelectorAll('*');
-                          for (let i = 0; i < allElements.length; i++) {
-                            const text = allElements[i].textContent.trim();
-                            if (text === '${asset}' || text === '${asset}.mic') {
-                              const clickable = allElements[i].closest('button, [role="button"], [onclick], td, tr');
-                              if (clickable || allElements[i].tagName === 'BUTTON') {
-                                (clickable || allElements[i]).click();
-                                assetSelected = true;
-                                console.log('MT5 Trading: Selected ${asset} using text-based selector');
-                                break;
-                              }
-                            }
-                          }
-                        }
-                        
-                        if (assetSelected) {
-                          sendMessage('step', '${asset} found — selecting...');
-                          await new Promise(r => setTimeout(r, 1500));
-                        } else {
-                          sendMessage('step', '⚠ Could not find ${asset} in symbol list');
-                          console.log('MT5 Trading: WARNING - Could not select ${asset}');
-                        }
-                        
+
+                         // ── FAST PATH: chart-toolbar one-click ──
+                         // Retry briefly — after a fired order MT5 redraws
+                         // the toolbar for a frame or two and the button can
+                         // disappear / be 0-size momentarily.
+                         let oneClickBtn = findOneClickButton();
+                         if (!oneClickBtn) {
+                           for (let r = 0; r < 4 && !oneClickBtn; r++) {
+                             await new Promise(res => setTimeout(res, 100));
+                             oneClickBtn = findOneClickButton();
+                           }
+                         }
+                         if (oneClickBtn) {
+                           oneClickBtn.click();
+                           console.log('MT5 Trading: One-click ${action} fired for trade', (tradeIndex + 1));
+                           await new Promise(r => setTimeout(r, 200));
+
+                           // Safety: if the disclaimer popped (e.g. session
+                           // changed, broker reset terms), accept and re-fire.
+                           if (acceptOneClickDisclaimer()) {
+                             await new Promise(r => setTimeout(r, 250));
+                             confirmOneClickDisclaimer();
+                             await new Promise(r => setTimeout(r, 500));
+                             const retry = findOneClickButton();
+                             if (retry) {
+                               retry.click();
+                               console.log('MT5 Trading: Re-fired ${action} after disclaimer');
+                               await new Promise(r => setTimeout(r, 200));
+                             }
+                           }
+
+                           sendMessage('step', 'Trade ' + (tradeIndex + 1) + ' of ' + numberOfTrades + ' fired');
+                           return true;
+                         }
+
+                         // ── FALLBACK: full dialog flow (legacy code below) ──
+                         console.log('MT5 Trading: One-click toolbar not found, falling back to dialog');
+
                         // Open order dialog - Universal approach
                         let dialogOpened = false;
-                        
+
                         // Try RazorMarkets selector
                         const razorOrderBtn = document.querySelector('.icon-button.withText span.button-text');
                         if (razorOrderBtn) {
@@ -879,7 +1054,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                           dialogOpened = true;
                           console.log('MT5 Trading: Opened order dialog using RazorMarkets selector');
                         }
-                        
+
                         // Try text-based search (generic and others)
                         if (!dialogOpened) {
                           const allButtons = document.querySelectorAll('button');
@@ -893,7 +1068,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                             }
                           }
                         }
-                        
+
                         if (dialogOpened) {
                           sendMessage('step', 'Order dialog opened — setting params...');
                           await new Promise(r => setTimeout(r, 1500));
@@ -901,7 +1076,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                           sendMessage('step', '⚠ Could not open order dialog — button not found');
                           console.log('MT5 Trading: WARNING - Could not open order dialog');
                         }
-                         
+
                         // Universal field setting function with multiple selector attempts
                         const setFieldValue = (selectors, value, fieldName) => {
                           // Try each selector in order
@@ -1090,10 +1265,11 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                            break;
                          }
                          
-                         // Wait between trades (only if we haven't reached the target)
+                         // Tiny pause between trades — one-click toolbar
+                         // refreshes prices in ~150ms and we don't want the
+                         // next click landing before the price tick.
                          if (completedTrades < numberOfTrades) {
-                           sendMessage('step', 'Waiting before next trade... (' + completedTrades + '/' + numberOfTrades + ' completed)');
-                           await new Promise(r => setTimeout(r, 2000));
+                           await new Promise(r => setTimeout(r, 200));
                          }
                        } else {
                          failedTrades++;
@@ -1311,8 +1487,8 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
 
               // Message sending function
               const sendMessage = (type, message) => {
-                try { 
-                  window.parent.postMessage(JSON.stringify({ type, message }), '*'); 
+                try {
+                  window.parent.postMessage(JSON.stringify({ type, message }), '*');
                 } catch(e) {
                   console.log('Message send error:', e);
                 }
@@ -1799,7 +1975,7 @@ async function handleApi(request: Request): Promise<Response> {
 
     // Add terminal-proxy routing
     if (pathname === '/api/terminal-proxy') {
-      const route = await import('./app/api/terminal-proxy.ts');
+      const route = await import('./services/terminal-proxy.ts');
       if (request.method === 'GET' && typeof route.default === 'function') {
         // Convert Bun Request to Express-like request/response
         const expressReq = {
@@ -1948,11 +2124,20 @@ async function handleApi(request: Request): Promise<Response> {
   }
 }
 
-const server = Bun.serve({
-  port: PORT,
-  hostname: '0.0.0.0', // Required for Render/Docker - listen on all interfaces
-  async fetch(request: Request) {
-    const url = new URL(request.url);
+function withCors(res: Response): Response {
+  if (res.headers.has('Access-Control-Allow-Origin')) return res;
+  const h = new Headers(res.headers);
+  h.set('Access-Control-Allow-Origin', '*');
+  h.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  h.set('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
+async function handleRequest(request: Request): Promise<Response> {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204 });
+  }
+  const url = new URL(request.url);
 
     // Health check
     if (url.pathname === '/health' || url.pathname === '/_health' || url.pathname === '/status') {
@@ -2007,6 +2192,13 @@ const server = Bun.serve({
 
     // Static files
     return serveStatic(request);
+}
+
+const server = Bun.serve({
+  port: PORT,
+  hostname: '0.0.0.0', // Required for Render/Docker - listen on all interfaces
+  async fetch(request: Request) {
+    return withCors(await handleRequest(request));
   },
 });
 

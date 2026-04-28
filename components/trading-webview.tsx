@@ -15,7 +15,15 @@ import { X, AlertCircle, CheckCircle, TrendingUp } from 'lucide-react-native';
 import { SignalLog } from '@/services/signals-monitor';
 import { useApp } from '@/providers/app-provider';
 
+// API base — empty in production (same-origin); EXPO_PUBLIC_API_BASE_URL
+// in dev points at the Bun server (Metro on :8081 only serves the SPA).
+const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
 
+// Dev toggle: when true, the trading terminal iframe is rendered visibly in
+// a bottom-right panel so you can watch the auto-trade flow in real time.
+// Flip to false (or guard with __DEV__) for production. Pure UI toggle —
+// does not affect script behaviour.
+const SHOW_TERMINAL_DEBUG = true;
 
 interface TradingWebViewProps {
   visible: boolean;
@@ -498,20 +506,20 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
             // Set Volume first
             setFieldValueOptimized('#volume', '${volume}', 'Volume');
             
-            // Set SL with longer delay to ensure Volume is processed
+            // Set SL with delay to ensure Volume is processed
             setTimeout(function() {
               setFieldValueOptimized('#sl', '${sl}', 'SL');
-            }, 1000);
-            
-            // Set TP with even longer delay to ensure SL is processed
+            }, 500);
+
+            // Set TP after SL
             setTimeout(function() {
               setFieldValueOptimized('#tp', '${tp}', 'TP');
-            }, 2000);
-            
+            }, 1000);
+
             // Set Comment last
             setTimeout(function() {
               setFieldValueOptimized('#comment', '${botname}', 'Comment');
-            }, 3000);
+            }, 1500);
           \`;
           
           const executeOrder = \`
@@ -565,23 +573,23 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
               setTimeout(function() {
                 console.log('Placing MT4 order ' + (orderIndex + 1) + ' - ${action}');
                 eval(executeOrder);
-                
+
                 // Wait before next order
                 setTimeout(function() {
                   executeOrderSequence(orderIndex + 1);
-                }, 8000); // 8 second delay between orders
-              }, 4500); // Delay to allow field setting to complete
+                }, 4000); // delay between orders
+              }, 2500); // delay to allow field setting to complete
             }
-            
+
             // Start the sequence
             executeOrderSequence(0);
-          }, 2000);
+          }, 1000);
         }
-        
+
         // Start the execution
         setTimeout(function() {
           executeTrading();
-        }, 2000);
+        }, 1000);
       })();
     `;
   }, [signal, tradeConfig, credentials, eaName]);
@@ -885,89 +893,17 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           }
         }
         
-        // Set Stop Loss with enhanced validation and multiple selector attempts
-        setTimeout(function() {
-          var slSet = setMT5FieldValue('.sl input[type="text"]', '${sl}', 'SL');
-          if (!slSet) {
-            // Try alternative selectors for other brokers
-            var allInputs = document.querySelectorAll('input[type="text"]');
-            for (var i = 0; i < allInputs.length; i++) {
-              var input = allInputs[i];
-              var parent = input.closest('[class*="loss"], [class*="sl"]');
-              if (parent || input.placeholder && input.placeholder.toLowerCase().includes('stop')) {
-                input.focus();
-                input.value = '';
-                input.value = '${sl}';
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                input.dispatchEvent(new Event('blur', { bubbles: true }));
-                console.log('Set SL using alternative selector');
-                break;
-              }
-            }
-          }
-        }, 400);
-        
-        // Set Take Profit with enhanced validation and multiple selector attempts
-        setTimeout(function() {
-          var tpSet = setMT5FieldValue('.tp input[type="text"]', '${tp}', 'TP');
-          if (!tpSet) {
-            // Try alternative selectors for other brokers
-            var allInputs = document.querySelectorAll('input[type="text"]');
-            for (var i = 0; i < allInputs.length; i++) {
-              var input = allInputs[i];
-              var parent = input.closest('[class*="profit"], [class*="tp"]');
-              if (parent || input.placeholder && input.placeholder.toLowerCase().includes('take') || input.placeholder && input.placeholder.toLowerCase().includes('profit')) {
-                input.focus();
-                input.value = '';
-                input.value = '${tp}';
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                input.dispatchEvent(new Event('blur', { bubbles: true }));
-                console.log('Set TP using alternative selector');
-                break;
-              }
-            }
-          }
-        }, 800);
-        
-        // Set Comment - try multiple selectors
-        setTimeout(function() {
-          var commentSelector = '.input.svelte-mtorg2 input[type="text"]';
-          var commentField = document.querySelector(commentSelector);
-          if (!commentField) {
-            commentSelector = '.input.svelte-1d8k9kk input[type="text"]';
-            commentField = document.querySelector(commentSelector);
-          }
-          if (!commentField) {
-            // Try finding comment field by searching all inputs
-            var allInputs = document.querySelectorAll('input[type="text"]');
-            for (var i = 0; i < allInputs.length; i++) {
-              var input = allInputs[i];
-              if (input.placeholder && (input.placeholder.toLowerCase().includes('comment') || input.placeholder.toLowerCase().includes('note'))) {
-                commentField = input;
-                break;
-              }
-            }
-          }
-          if (commentField) {
-            commentField.focus();
-            commentField.value = '';
-            commentField.value = '${botname}';
-            commentField.dispatchEvent(new Event('input', { bubbles: true }));
-            commentField.dispatchEvent(new Event('change', { bubbles: true }));
-            commentField.dispatchEvent(new Event('blur', { bubbles: true }));
-            console.log('Set comment field');
-          }
-        }, 1200);
+        // SL/TP/Comment field setting intentionally skipped — orders fire at
+        // market with the configured volume only. Removes ~1.2s of nested
+        // setTimeouts per order and cuts the param-settle wait below.
       \`;
       
       const executeOrder = \`
         ${action === 'BUY' ?
         `// Try RazorMarkets selector first
         var buyButton = document.querySelector('.footer-row button.trade-button:not(.red)');
-        if (buyButton !== null) { 
-          buyButton.click(); 
+        if (buyButton !== null) {
+          buyButton.click();
           console.log('Executed BUY using RazorMarkets selector');
         } else {
           // Try other brokers - search for Buy button by text
@@ -983,8 +919,8 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         }` :
         `// Try RazorMarkets selector first
         var sellButton = document.querySelector('.footer-row button.trade-button.red');
-        if (sellButton !== null) { 
-          sellButton.click(); 
+        if (sellButton !== null) {
+          sellButton.click();
           console.log('Executed SELL using RazorMarkets selector');
         } else {
           // Try other brokers - search for Sell button by text
@@ -999,6 +935,85 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           }
         }`
       }
+      \`;
+
+      // ────────────────────────────────────────────────────────────────
+      // One-click chart-toolbar fire path
+      // The MT5 web terminal renders a "one-click trading" bar at the top
+      // of the chart with SELL <bid> | volume | BUY <ask>. Each press fires
+      // an order at market without opening the order dialog or asking for
+      // confirmation. We use this for follow-up orders so trades 2..N take
+      // ~300ms each instead of the ~2s dialog cycle.
+      // ────────────────────────────────────────────────────────────────
+      const setOneClickVolume = \`
+        (function() {
+          // Volume input/spinner sits between SELL and BUY at top of chart.
+          // Heuristic: a visible numeric field above y=300 whose value
+          // already looks like a lot size (e.g. "0.01"), or whose nearest
+          // ancestor mentions "volume" / "lot".
+          var els = document.querySelectorAll('input, [contenteditable="true"], .value, [class*="volume"] input, [class*="lot"] input');
+          for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            var rect = el.getBoundingClientRect();
+            if (rect.top > 300 || rect.width === 0) continue;
+            var v = (el.value !== undefined ? el.value : (el.textContent || '')).trim();
+            var ctx = ((el.className || '') + ' ' + (el.getAttribute && el.getAttribute('placeholder') || '') + ' ' + ((el.closest && el.closest('[class]')||{}).className || '')).toLowerCase();
+            var looksLikeLot = /^[0-9]+(\\.[0-9]+)?$/.test(v) && parseFloat(v) <= 1000;
+            var hasLotContext = ctx.indexOf('volume') >= 0 || ctx.indexOf('lot') >= 0;
+            if (looksLikeLot || hasLotContext) {
+              try {
+                if (el.tagName === 'INPUT') {
+                  el.focus();
+                  el.value = '';
+                  el.value = '${volume}';
+                  el.dispatchEvent(new Event('input', { bubbles: true }));
+                  el.dispatchEvent(new Event('change', { bubbles: true }));
+                  el.dispatchEvent(new Event('blur', { bubbles: true }));
+                } else {
+                  el.textContent = '${volume}';
+                }
+                console.log('[OneClick] Volume set on toolbar: ' + (el.value || el.textContent));
+                return true;
+              } catch (e) { /* keep looking */ }
+            }
+          }
+          console.log('[OneClick] Could not locate volume field on toolbar');
+          return false;
+        })();
+      \`;
+
+      const oneClickFire = \`
+        (function() {
+          var target = '${action}'; // 'BUY' or 'SELL'
+          var btns = document.querySelectorAll('button, [role="button"], a, div, span');
+          var candidates = [];
+          for (var i = 0; i < btns.length; i++) {
+            var btn = btns[i];
+            var txt = (btn.textContent || '').trim().toUpperCase();
+            if (!txt) continue;
+            // Match the toolbar buttons whose label starts with BUY/SELL
+            // followed by a price (e.g. "SELL 4587.817"). Avoid matches
+            // deep inside long text blocks.
+            if (txt.length > 30) continue;
+            var starts = txt.indexOf(target) === 0 || txt.indexOf(target + ' ') === 0;
+            if (!starts) continue;
+            var rect = btn.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) continue;
+            // Only chart-toolbar candidates: top of viewport.
+            if (rect.top > 250) continue;
+            candidates.push({ btn: btn, rect: rect, txt: txt });
+          }
+          if (candidates.length === 0) {
+            console.log('[OneClick] No ' + target + ' toolbar button visible');
+            return false;
+          }
+          // Prefer the topmost candidate (the chart toolbar sits above any
+          // duplicate buttons further down in the layout).
+          candidates.sort(function(a, b) { return a.rect.top - b.rect.top; });
+          candidates[0].btn.click();
+          console.log('[OneClick] Fired ' + target + ': ' + candidates[0].txt);
+          return true;
+        })();
       \`;
       
       const confirmOrder = \`
@@ -1094,7 +1109,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         if (checkIfLoggedIn()) {
           console.log('[MT5] Already logged in - skipping login');
           sendProgress('Already logged in - starting trade execution...');
-          setTimeout(step3_RevealSearchBar, 1000);
+          setTimeout(step3_RevealSearchBar, 500);
         } else {
           console.log('[MT5] Not logged in - performing login');
           sendProgress('Logging into MT5 account...');
@@ -1106,7 +1121,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
       function step1_Login() {
         eval(loginScript);
         eval(loginPress);
-        setTimeout(step2_WaitForLogin, 6000);
+        setTimeout(step2_WaitForLogin, 3500);
       }
       
       // Step 2: Wait for login to complete
@@ -1123,14 +1138,14 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           if (checkIfLoggedIn()) {
             console.log('[MT5] Login successful - terminal loaded');
             sendProgress('Login successful!');
-            setTimeout(step3_RevealSearchBar, 2000);
+            setTimeout(step3_RevealSearchBar, 1000);
           } else if (attempts < maxAttempts) {
             console.log('[MT5] Terminal not ready yet, waiting...');
-            setTimeout(checkLoginStatus, 2000);
+            setTimeout(checkLoginStatus, 1000);
           } else {
             console.log('[MT5] Login timeout - proceeding anyway');
             sendProgress('Login timeout - attempting to continue...');
-            setTimeout(step3_RevealSearchBar, 2000);
+            setTimeout(step3_RevealSearchBar, 1000);
           }
         }
         
@@ -1141,21 +1156,21 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
       function step3_RevealSearchBar() {
         sendProgress('Accessing symbol search...');
         eval(revealAndVerifySearchBar);
-        setTimeout(step4_SearchSymbol, 3000);
+        setTimeout(step4_SearchSymbol, 1500);
       }
-      
+
       // Step 4: Search for symbol
       function step4_SearchSymbol() {
         sendProgress('Searching for ${asset}...');
         eval(searchSymbol);
-        setTimeout(step5_SelectSymbol, 2000);
+        setTimeout(step5_SelectSymbol, 1000);
       }
-      
+
       // Step 5: Select symbol
       function step5_SelectSymbol() {
         sendProgress('Selecting ${asset}...');
         eval(selectSymbol);
-        setTimeout(step6_ExecuteTrades, 2000);
+        setTimeout(step6_ExecuteTrades, 1000);
       }
       
       // Step 6: Execute all trades
@@ -1173,73 +1188,81 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           
           setTimeout(function() {
             window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'close', 
+              type: 'close',
               message: 'Trading completed'
             }));
-          }, 3000);
+          }, 1500);
           return;
         }
         
         var orderNum = orderIndex + 1;
         sendProgress('Executing order ' + orderNum + ' of ' + globalTotalOrders + '...');
-        
-        // Open order dialog
-        setTimeout(function() {
-          console.log('[Order ' + orderNum + '] Opening order dialog');
-          eval(openOrderDialog);
-          
-          // Set parameters
+
+        // Set volume on the chart-toolbar one-click bar (idempotent — only
+        // does anything on the first call, since the value sticks).
+        if (orderIndex === 0) {
+          eval(setOneClickVolume);
+        }
+
+        // Fire via chart-toolbar (no dialog). Each click fires immediately.
+        var fired = false;
+        try { fired = eval(oneClickFire); } catch (e) { fired = false; }
+
+        if (!fired) {
+          // Fallback: chart toolbar wasn't found / one-click trading off.
+          // Drop back to the legacy dialog path so we never silently miss.
+          console.log('[Order ' + orderNum + '] One-click toolbar not found — falling back to dialog');
           setTimeout(function() {
-            console.log('[Order ' + orderNum + '] Setting parameters (Vol: ${volume}, SL: ${sl}, TP: ${tp})');
-            sendProgress('Setting parameters for order ' + orderNum + '...');
-            eval(setOrderParams);
-            
-            // Execute the trade
+            eval(openOrderDialog);
             setTimeout(function() {
-              console.log('[Order ' + orderNum + '] Executing ${action} order');
-              sendProgress('Placing ${action} order ' + orderNum + '...');
-              eval(executeOrder);
-              
-              // Confirm the order
+              eval(setOrderParams);
               setTimeout(function() {
-                console.log('[Order ' + orderNum + '] Confirming order');
-                eval(confirmOrder);
-                
-                // Wait for order to process, then move to next
+                eval(executeOrder);
                 setTimeout(function() {
-                  globalOrdersCompleted++;
-                  console.log('[Order ' + orderNum + '] Completed (' + globalOrdersCompleted + '/' + globalTotalOrders + ')');
-                  
-                  // Close any confirmation dialogs
-                  var closeButtons = document.querySelectorAll('button');
-                  for (var i = 0; i < closeButtons.length; i++) {
-                    var btnText = (closeButtons[i].textContent || '').trim().toLowerCase();
-                    if (btnText.includes('close') || btnText.includes('ok') || btnText === 'x') {
-                      closeButtons[i].click();
-                      console.log('[Order ' + orderNum + '] Closed confirmation dialog');
-                      break;
-                    }
-                  }
-                  
-                  // Move to next order
+                  eval(confirmOrder);
                   setTimeout(function() {
-                    executeSingleTrade(orderIndex + 1);
-                  }, 2000);
-                }, 3000); // Wait for confirmation
-              }, 1500); // Wait before confirming
-            }, 2000); // Wait before executing
-          }, 2500); // Wait for parameters to be set
-        }, 2000); // Wait for dialog to open
+                    globalOrdersCompleted++;
+                    var closeButtons = document.querySelectorAll('button');
+                    for (var i = 0; i < closeButtons.length; i++) {
+                      var btnText = (closeButtons[i].textContent || '').trim().toLowerCase();
+                      if (btnText.includes('close') || btnText.includes('ok') || btnText === 'x') {
+                        closeButtons[i].click();
+                        break;
+                      }
+                    }
+                    setTimeout(function() {
+                      executeSingleTrade(orderIndex + 1);
+                    }, 400);
+                  }, 600);
+                }, 400);
+              }, 500);
+            }, 350);
+          }, 600);
+          return;
+        }
+
+        // Toolbar fire was successful — short gap before the next click.
+        // ~250ms is enough for MT5 to register the order and refresh the
+        // toolbar prices without losing clicks.
+        globalOrdersCompleted++;
+        console.log('[Order ' + orderNum + '] Toolbar fired (' + globalOrdersCompleted + '/' + globalTotalOrders + ')');
+        setTimeout(function() {
+          executeSingleTrade(orderIndex + 1);
+        }, 250);
       }
-      
+
       // Start the trading flow
-      setTimeout(startTrading, 1000);
+      setTimeout(startTrading, 500);
     `;
   }, [signal, tradeConfig, credentials, eaName]);
 
-  // MT5 Broker URL mapping (Fix #8: generic removed — migrated to Razor Markets)
+  // MT5 Broker URL mapping. Server name (as shown on the broker's
+  // login screen) → web terminal base URL. Keep entries in sync with
+  // app/(tabs)/metatrader.tsx where the dropdown is built from the keys.
   const MT5_BROKER_URLS: Record<string, string> = {
     'RazorMarkets-Live': 'https://webtrader.razormarkets.co.za/terminal/',
+    'RCGMarkets-Real': 'https://webtrader.rcgmarkets.com/terminal/',
+    'Trade245Global-Live': 'https://webtrader.trade245.com/terminal/',
   };
 
   // Get WebView URL for trading based on platform — uses session token for credentials
@@ -1277,11 +1300,11 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         botname: eaName,
       };
 
-      const proxyEndpoint = tradeConfig.platform === 'MT4' ? '/api/mt4-proxy' : '/api/mt5-proxy';
+      const proxyEndpoint = tradeConfig.platform === 'MT4' ? `${API_BASE}/api/mt4-proxy` : `${API_BASE}/api/mt5-proxy`;
 
       try {
         // POST credentials to get a one-time session token
-        const res = await fetch('/api/proxy-session', {
+        const res = await fetch(`${API_BASE}/api/proxy-session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -1775,23 +1798,25 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
       )}
 
       {/* Invisible WebView — runs terminal + auth+trade script in background.
-          The user only sees the toast above; terminal renders off-screen. */}
+          The user only sees the toast above; terminal renders off-screen.
+          When SHOW_TERMINAL_DEBUG is true, swap to a visible bottom-right
+          panel so the flow is observable. */}
       {visible && webViewUrl !== '' && (
-        <View style={styles.invisibleWebViewContainer}>
+        <View style={SHOW_TERMINAL_DEBUG ? styles.debugWebViewContainer : styles.invisibleWebViewContainer}>
           {Platform.OS === 'web' ? (
             <WebWebView
               ref={webViewRef as any}
               url={webViewUrl}
               onMessage={handleWebViewMessage}
               onLoadEnd={handleWebViewLoad}
-              style={styles.invisibleWebView}
+              style={SHOW_TERMINAL_DEBUG ? styles.debugWebView : styles.invisibleWebView}
             />
           ) : (
             <CustomWebView
               url={webViewUrl}
               onMessage={handleWebViewMessage}
               onLoadEnd={handleWebViewLoad}
-              style={styles.invisibleWebView}
+              style={SHOW_TERMINAL_DEBUG ? styles.debugWebView : styles.invisibleWebView}
             />
           )}
         </View>
@@ -2010,6 +2035,27 @@ const styles = StyleSheet.create({
     opacity: 0,
     backgroundColor: 'transparent',
     display: 'flex',
+  },
+  // Dev-only visible terminal panel (toggled via SHOW_TERMINAL_DEBUG).
+  // Anchored bottom-right with a sane size so the broker UI has room.
+  debugWebViewContainer: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    width: 720,
+    height: 520,
+    zIndex: 9999,
+    overflow: 'hidden',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(0,200,255,0.6)',
+    backgroundColor: '#000',
+  },
+  debugWebView: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
   },
   closeButton: {
     position: 'absolute',

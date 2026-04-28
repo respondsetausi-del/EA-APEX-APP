@@ -62,5 +62,8 @@
     "serve": "^14.2.1",
     "typescript": "~5.8.3"
   },
+  "overrides": {
+    "ajv": "^8.17.1"
+  },
   "private": true
 }

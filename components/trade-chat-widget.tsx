@@ -863,10 +863,12 @@ function ConfirmCard({ message, glowColor, defaultLot, defaultCount, onConfirm, 
   const actionColor = baseOrder.action === 'SELL' ? '#F87171' : '#4ADE80';
 
   const handleSendIt = () => {
+    // Chat path fires market orders only — no SL/TP. Matches the chart's
+    // one-click toolbar behaviour the trading-webview uses for execution.
     onConfirm({
       ...baseOrder,
-      slPrice: localSlPrice,
-      tpPrice: localTpPrice,
+      slPrice: undefined,
+      tpPrice: undefined,
     });
   };
 
@@ -890,10 +892,6 @@ function ConfirmCard({ message, glowColor, defaultLot, defaultCount, onConfirm, 
           <Text style={styles.presetSymbol}>{baseOrder.symbol}</Text>
           <Text style={styles.presetDim}>  ·  </Text>
           <Text style={styles.presetLot}>{lot} lot</Text>
-          <Text style={styles.presetDim}>  ·  </Text>
-          <Text style={localSlPrice !== undefined ? styles.presetFilled : styles.presetDim}>{slLabel}</Text>
-          <Text style={styles.presetDim}>  ·  </Text>
-          <Text style={localTpPrice !== undefined ? styles.presetFilled : styles.presetDim}>{tpLabel}</Text>
         </Text>
 
         {lot > MAX_LOT_WARN && !resolved && (
@@ -958,22 +956,6 @@ function ConfirmCard({ message, glowColor, defaultLot, defaultCount, onConfirm, 
               testID="trade-chat-card-confirm"
             >
               <Text style={styles.chipPrimaryText}>Send it</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.chip, styles.chipGhost, { borderColor: glowColor + '55' }]}
-              onPress={() => setExpandedInput(expandedInput === 'sl' ? null : 'sl')}
-            >
-              <Text style={[styles.chipGhostText, { color: glowColor }]}>
-                {localSlPrice !== undefined ? 'Edit SL' : '+ SL'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.chip, styles.chipGhost, { borderColor: glowColor + '55' }]}
-              onPress={() => setExpandedInput(expandedInput === 'tp' ? null : 'tp')}
-            >
-              <Text style={[styles.chipGhostText, { color: glowColor }]}>
-                {localTpPrice !== undefined ? 'Edit TP' : '+ TP'}
-              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.chip, styles.chipCancel]}

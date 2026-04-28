@@ -17,6 +17,10 @@ export default function LoginScreen() {
   const [modalMessage, setModalMessage] = useState<string>('');
   const [paymentVisible, setPaymentVisible] = useState<boolean>(false);
   const [paymentUrl, setPaymentUrl] = useState<string>('');
+  // When set, the modal's OK button transitions into the payment WebView
+  // (used for device-mismatch reactivation: show the explanation first,
+  // then offer payment as the recovery path).
+  const [pendingPaymentUrl, setPendingPaymentUrl] = useState<string>('');
   const { setUser, eas, isHydrated, emailAuthenticated, setEmailAuthenticated } = useApp();
 
   // If the user is already authenticated, bounce them to the right place.
@@ -50,11 +54,18 @@ export default function LoginScreen() {
       const trimmedMentor = mentorId.trim();
       const account = await apiService.authenticate({ email: trimmedEmail, mentor: trimmedMentor });
 
-      // If user doesn't exist or hasn't paid: redirect to payment/shop page
+      // If user doesn't exist or hasn't paid: redirect to payment/shop page.
+      // On web, pop into a new tab (PayFast often refuses to be iframed).
       if (account.status === 'not_found' || !account.paid) {
         const url = `https://ea-converter.com/shop/indexIOS.php?email=${encodeURIComponent(trimmedEmail)}&mentor=${encodeURIComponent(trimmedMentor)}`;
-        setPaymentUrl(url);
-        setPaymentVisible(true);
+        if (Platform.OS === 'web') {
+          if (typeof window !== 'undefined') {
+            window.open(url, '_blank', 'noopener,noreferrer');
+          }
+        } else {
+          setPaymentUrl(url);
+          setPaymentVisible(true);
+        }
         return;
       }
 
@@ -77,10 +88,16 @@ export default function LoginScreen() {
         return;
       }
 
-      // Device mismatch — different phone trying to use same email
+      // Device mismatch — show the explanation modal first, then transition
+      // into the PayFast reactivate flow (`payment/renew.php`) when the user
+      // taps Reactivate. The webhook (payfast_webhook.php) clears the bound
+      // device_id on payment success so the next login from this device
+      // auto-rebinds via check_email_device.php.
       if ((account as any).device_mismatch) {
+        const url = `https://ea-converter.com/payment/renew.php?email=${encodeURIComponent(trimmedEmail)}&mentor=${encodeURIComponent(trimmedMentor)}`;
         setModalTitle('Device Not Authorized');
-        setModalMessage('This subscription is already active on another device. Each subscription can only be used on one device. Contact support to transfer your license.');
+        setModalMessage('This subscription is already active on another device. Tap Reactivate to pay and bind this device.');
+        setPendingPaymentUrl(url);
         setModalVisible(true);
         return;
       }
@@ -196,9 +213,25 @@ export default function LoginScreen() {
             <Text style={styles.modalMessage}>{modalMessage}</Text>
             <TouchableOpacity
               style={styles.modalButton}
-              onPress={() => setModalVisible(false)}
+              onPress={() => {
+                setModalVisible(false);
+                if (pendingPaymentUrl) {
+                  // On web, pop the payment page out into a new tab — PayFast
+                  // often blocks iframing, and a real tab gives the user the
+                  // full PayFast UX. Native still uses the in-app WebView.
+                  if (Platform.OS === 'web') {
+                    if (typeof window !== 'undefined') {
+                      window.open(pendingPaymentUrl, '_blank', 'noopener,noreferrer');
+                    }
+                  } else {
+                    setPaymentUrl(pendingPaymentUrl);
+                    setPaymentVisible(true);
+                  }
+                  setPendingPaymentUrl('');
+                }
+              }}
             >
-              <Text style={styles.modalButtonText}>OK</Text>
+              <Text style={styles.modalButtonText}>{pendingPaymentUrl ? 'Reactivate' : 'OK'}</Text>
             </TouchableOpacity>
           </View>
         </View>

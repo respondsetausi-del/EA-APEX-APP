@@ -10,6 +10,12 @@ import TradeChatWidget from '../../components/trade-chat-widget';
 import { Eye, EyeOff, Search, Server, ExternalLink, Shield, RefreshCw, X } from 'lucide-react-native';
 import { useApp } from '@/providers/app-provider';
 
+// API base — empty string ('' / same-origin) for production where Bun
+// serves both the SPA and /api/*; in dev, EXPO_PUBLIC_API_BASE_URL points
+// at the Bun server (e.g. http://localhost:3000) since Metro on :8081
+// only serves the frontend.
+const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+
 // Default MT4 Brokers (will be updated from web terminal)
 const DEFAULT_MT4_BROKERS = [
   'FXCM-Demo01',
@@ -486,9 +492,13 @@ const DEFAULT_MT4_BROKERS = [
   'TradeFX-SA-Live',
 ];
 
-// MT5 Brokers with URL mapping (Fix #8: AccuMarkets removed — migrated to Razor Markets)
+// MT5 Brokers with URL mapping. Keys are the server names that appear on
+// each broker's MT5 login screen; values are the web terminal base URLs.
+// Keep this in sync with the matching map in components/trading-webview.tsx.
 const MT5_BROKER_URLS: Record<string, string> = {
   'RazorMarkets-Live': 'https://webtrader.razormarkets.co.za/terminal/',
+  'RCGMarkets-Real': 'https://webtrader.rcgmarkets.com/terminal/',
+  'Trade245Global-Live': 'https://webtrader.trade245.com/terminal/',
 };
 
 const MT5_BROKERS = Object.keys(MT5_BROKER_URLS);
@@ -546,7 +556,7 @@ export default function MetaTraderScreen() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/proxy-session', {
+        const res = await fetch(`${API_BASE}/api/proxy-session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -556,7 +566,7 @@ export default function MetaTraderScreen() {
         });
         const data = await res.json();
         if (!cancelled && data.token) {
-          setMT5SessionUrl(`/api/mt5-proxy?session=${encodeURIComponent(data.token)}`);
+          setMT5SessionUrl(`${API_BASE}/api/mt5-proxy?session=${encodeURIComponent(data.token)}`);
         }
       } catch (e) { console.error('MT5 session error:', e); }
     })();
@@ -568,7 +578,7 @@ export default function MetaTraderScreen() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/proxy-session', {
+        const res = await fetch(`${API_BASE}/api/proxy-session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -578,7 +588,7 @@ export default function MetaTraderScreen() {
         });
         const data = await res.json();
         if (!cancelled && data.token) {
-          setMT4SessionUrl(`/api/mt4-proxy?session=${encodeURIComponent(data.token)}`);
+          setMT4SessionUrl(`${API_BASE}/api/mt4-proxy?session=${encodeURIComponent(data.token)}`);
         }
       } catch (e) { console.error('MT4 session error:', e); }
     })();
