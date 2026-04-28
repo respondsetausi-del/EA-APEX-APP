@@ -2015,24 +2015,27 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: '#000',
   },
-  // Invisible WebView — off-screen 1x1 container (matches tradeport-ea-app).
-  // The iframe inside gets explicit 1280x800 so the terminal has a real
-  // viewport even though the container clips it to 1x1.
+  // Invisible WebView — kept inside the viewport but visually hidden.
+  // Chrome throttles iframes positioned far offscreen (top:-10000) and
+  // skips rendering parts of MT5 web, including the One-Click BUY/SELL
+  // toolbar — which was breaking the fast-trade path. We instead pin
+  // the container at top-left, 1x1, opacity:0 with overflow:hidden so
+  // it stays in the active viewport without being visible. The iframe
+  // inside still gets a real 1280x800 desktop viewport.
   invisibleWebViewContainer: {
     position: 'absolute',
-    top: -10000,
-    left: -10000,
+    top: 0,
+    left: 0,
     width: 1,
     height: 1,
     opacity: 0,
-    zIndex: -10000,
+    zIndex: -1,
     overflow: 'hidden',
     pointerEvents: 'none',
-    elevation: -10000,
   },
   invisibleWebView: {
-    width: 1,
-    height: 1,
+    width: 1280,
+    height: 800,
     opacity: 0,
     backgroundColor: 'transparent',
     display: 'flex',

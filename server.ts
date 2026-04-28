@@ -872,6 +872,32 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                        return false;
                      };
 
+                     // The one-click BUY/SELL bar can be collapsed/hidden.
+                     // The MT5 web terminal exposes a toggle in the top
+                     // toolbar (title/aria-label like "One Click Trading"
+                     // or "Show One-Click Trading"). If the BUY/SELL bar
+                     // isn't visible, click the toggle to reveal it.
+                     const ensureOneClickBarVisible = () => {
+                       const candidates = document.querySelectorAll('button, [role="button"], a, [class*="icon"]');
+                       for (let i = 0; i < candidates.length; i++) {
+                         const el = candidates[i];
+                         const title = (el.getAttribute('title') || '').toLowerCase();
+                         const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                         const dataTip = (el.getAttribute('data-tooltip') || el.getAttribute('data-title') || '').toLowerCase();
+                         const meta = title + ' ' + aria + ' ' + dataTip;
+                         if (!meta.trim()) continue;
+                         // Match "one click", "one-click", "1-click", "one click trading"
+                         if (meta.indexOf('one click') < 0 && meta.indexOf('one-click') < 0 && meta.indexOf('1-click') < 0 && meta.indexOf('one click trading') < 0) continue;
+                         const rect = el.getBoundingClientRect();
+                         if (rect.width === 0 || rect.height === 0) continue;
+                         if (rect.top > 200) continue; // only top toolbar
+                         el.click();
+                         console.log('MT5 Trading: Toggled One-Click Trading toolbar via:', meta.trim());
+                         return true;
+                       }
+                       return false;
+                     };
+
                      // Find the chart's one-click BUY/SELL toolbar button.
                      // The MT5 web terminal's one-click bar renders SELL/BUY
                      // labels alongside their bid/ask prices. Layouts vary
@@ -992,6 +1018,14 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                      };
 
                      await setupSymbol();
+                     // If the One-Click Trading bar is collapsed, expand it
+                     // now so volume + BUY/SELL clicks have something to land
+                     // on. No-op if it's already open.
+                     if (!findOneClickButton()) {
+                       if (ensureOneClickBarVisible()) {
+                         await new Promise(r => setTimeout(r, 400));
+                       }
+                     }
                      setOneClickVolume('${volume}');
                      await new Promise(r => setTimeout(r, 300));
 
@@ -1010,12 +1044,23 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                          // ── FAST PATH: chart-toolbar one-click ──
                          // Retry briefly — after a fired order MT5 redraws
                          // the toolbar for a frame or two and the button can
-                         // disappear / be 0-size momentarily.
+                         // disappear / be 0-size momentarily. If still not
+                         // visible after retries, click the toolbar toggle
+                         // to expand the One-Click Trading bar, then retry.
                          let oneClickBtn = findOneClickButton();
                          if (!oneClickBtn) {
                            for (let r = 0; r < 4 && !oneClickBtn; r++) {
                              await new Promise(res => setTimeout(res, 100));
                              oneClickBtn = findOneClickButton();
+                           }
+                         }
+                         if (!oneClickBtn) {
+                           if (ensureOneClickBarVisible()) {
+                             // Give the bar a moment to render, then look again.
+                             for (let r = 0; r < 6 && !oneClickBtn; r++) {
+                               await new Promise(res => setTimeout(res, 150));
+                               oneClickBtn = findOneClickButton();
+                             }
                            }
                          }
                          if (oneClickBtn) {
