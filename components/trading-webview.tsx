@@ -21,9 +21,10 @@ const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '')
 
 // Dev toggle: when true, the trading terminal iframe is rendered visibly in
 // a bottom-right panel so you can watch the auto-trade flow in real time.
-// Flip to false (or guard with __DEV__) for production. Pure UI toggle —
-// does not affect script behaviour.
-const SHOW_TERMINAL_DEBUG = true;
+// Flip to true locally for debugging; must stay false in production so the
+// terminal stays off-screen. Pure UI toggle — does not affect script
+// behaviour.
+const SHOW_TERMINAL_DEBUG = false;
 
 interface TradingWebViewProps {
   visible: boolean;
