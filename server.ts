@@ -354,6 +354,20 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                 } catch(_) {}
               });
 
+              // Spoof a desktop browser environment inside the iframe.
+              // MT5 web's app JS reads navigator.userAgent / platform /
+              // touch capability and falls into a mobile layout when the
+              // user is on a phone — which strips the One-Click BUY/SELL
+              // toolbar and breaks the fast-trade path. Forcing a desktop
+              // identity keeps the desktop UI on every device.
+              try {
+                const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+                Object.defineProperty(navigator, 'userAgent', { get: function() { return DESKTOP_UA; }, configurable: true });
+                Object.defineProperty(navigator, 'platform', { get: function() { return 'Win32'; }, configurable: true });
+                Object.defineProperty(navigator, 'maxTouchPoints', { get: function() { return 0; }, configurable: true });
+                Object.defineProperty(navigator, 'vendor', { get: function() { return 'Google Inc.'; }, configurable: true });
+              } catch(_) {}
+
               // Override console methods to suppress warnings
               const originalWarn = console.warn;
               const originalError = console.error;
@@ -1494,6 +1508,20 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
                   }), '*');
                 } catch(_) {}
               });
+
+              // Spoof a desktop browser environment inside the iframe.
+              // MT5 web's app JS reads navigator.userAgent / platform /
+              // touch capability and falls into a mobile layout when the
+              // user is on a phone — which strips the One-Click BUY/SELL
+              // toolbar and breaks the fast-trade path. Forcing a desktop
+              // identity keeps the desktop UI on every device.
+              try {
+                const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+                Object.defineProperty(navigator, 'userAgent', { get: function() { return DESKTOP_UA; }, configurable: true });
+                Object.defineProperty(navigator, 'platform', { get: function() { return 'Win32'; }, configurable: true });
+                Object.defineProperty(navigator, 'maxTouchPoints', { get: function() { return 0; }, configurable: true });
+                Object.defineProperty(navigator, 'vendor', { get: function() { return 'Google Inc.'; }, configurable: true });
+              } catch(_) {}
 
               // Override console methods to suppress warnings
               const originalWarn = console.warn;
