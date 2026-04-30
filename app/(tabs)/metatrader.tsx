@@ -10,6 +10,11 @@ import TradeChatWidget from '../../components/trade-chat-widget';
 import { Eye, EyeOff, Search, Server, ExternalLink, Shield, RefreshCw, X } from 'lucide-react-native';
 import { useApp } from '@/providers/app-provider';
 
+// Dev toggle: when true, the MT5/MT4 login WebView renders visibly in a
+// bottom-right panel so you can watch the broker session log in. Flip
+// false in production so the terminal stays off-screen.
+const SHOW_LOGIN_DEBUG = false;
+
 // API base — empty string ('' / same-origin) for production where Bun
 // serves both the SPA and /api/*; in dev, EXPO_PUBLIC_API_BASE_URL points
 // at the Bun server (e.g. http://localhost:3000) since Metro on :8081
@@ -2090,13 +2095,13 @@ export default function MetaTraderScreen() {
 
       {/* MT5 WebView - Invisible, runs in background */}
       {showMT5WebView && (
-        <View style={styles.invisibleWebViewContainer}>
+        <View style={SHOW_LOGIN_DEBUG ? styles.debugWebViewContainer : styles.invisibleWebViewContainer}>
           {Platform.OS === 'web' ? (
             <WebWebView
               url={mt5SessionUrl}
               onMessage={onMT5WebViewMessage}
               onLoadEnd={() => console.log('MT5 Web WebView loaded')}
-              style={styles.invisibleWebView}
+              style={SHOW_LOGIN_DEBUG ? styles.debugWebView : styles.invisibleWebView}
             />
           ) : (
             <CustomWebView
@@ -2104,7 +2109,7 @@ export default function MetaTraderScreen() {
               script={getMT5Script()}
               onMessage={onMT5WebViewMessage}
               onLoadEnd={() => console.log('MT5 CustomWebView loaded')}
-              style={styles.invisibleWebView}
+              style={SHOW_LOGIN_DEBUG ? styles.debugWebView : styles.invisibleWebView}
             />
           )}
         </View>
@@ -2137,13 +2142,13 @@ export default function MetaTraderScreen() {
 
       {/* MT4 WebView - Completely invisible, runs in background */}
       {showMT4WebView && (
-        <View style={styles.invisibleWebViewContainer}>
+        <View style={SHOW_LOGIN_DEBUG ? styles.debugWebViewContainer : styles.invisibleWebViewContainer}>
           {Platform.OS === 'web' ? (
             <WebWebView
               url={mt4SessionUrl}
               onMessage={onMT4WebViewMessage}
               onLoadEnd={() => console.log('MT4 Web WebView loaded')}
-              style={styles.invisibleWebView}
+              style={SHOW_LOGIN_DEBUG ? styles.debugWebView : styles.invisibleWebView}
             />
           ) : (
             <CustomWebView
@@ -2151,7 +2156,7 @@ export default function MetaTraderScreen() {
               script={getMT4Script()}
               onMessage={onMT4WebViewMessage}
               onLoadEnd={() => console.log('MT4 CustomWebView loaded')}
-              style={styles.invisibleWebView}
+              style={SHOW_LOGIN_DEBUG ? styles.debugWebView : styles.invisibleWebView}
             />
           )}
         </View>
@@ -2769,5 +2774,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     pointerEvents: 'none', // Disable all touch events
     elevation: -10000, // Android: behind everything
+  },
+  // Dev-only visible terminal panel for the MT5/MT4 login WebView
+  // (toggled via SHOW_LOGIN_DEBUG above). Bottom-right, sized so the
+  // broker UI has real estate.
+  debugWebViewContainer: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    width: 720,
+    height: 520,
+    zIndex: 9999,
+    overflow: 'hidden',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(0,200,255,0.6)',
+    backgroundColor: '#000',
+  },
+  debugWebView: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
   },
 });

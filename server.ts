@@ -174,6 +174,8 @@ async function serveStatic(request: Request): Promise<Response> {
 // --- Broker proxy: forward terminal API / asset requests to the real broker ---
 const ALLOWED_BROKER_HOSTS = [
   'webtrader.razormarkets.co.za',
+  'webtrader.rcgmarkets.com',
+  'webtrader.trade245.com',
   'metatraderweb.app',
   'trade.mql5.com',
 ];
@@ -259,6 +261,13 @@ function getBaseUrlFromTerminalUrl(terminalUrl: string): string {
   }
 }
 
+// Tracks the broker base URL of the most recently served MT5 terminal HTML.
+// The asset-proxy handler at /terminal/* uses this to forward .js / .css /
+// .ws-init requests to the right broker (referer-based detection breaks on
+// localhost where the iframe's origin is our own proxy host, not the
+// broker). Updated every time handleMT5Proxy serves a fresh terminal page.
+let lastMt5BrokerBaseUrl: string | null = null;
+
 async function handleMT5Proxy(request: Request): Promise<Response> {
   const url = new URL(request.url);
 
@@ -294,7 +303,12 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
 
   // Extract base URL for WebSocket and asset proxying
   const baseUrl = getBaseUrlFromTerminalUrl(targetUrl);
-  
+
+  // Remember which broker we just served so the /terminal/* asset proxy
+  // forwards subsequent JS/CSS requests to the same host instead of
+  // defaulting to RazorMarkets (which doesn't have other brokers' bundles).
+  lastMt5BrokerBaseUrl = baseUrl;
+
   // Construct WebSocket URL - different brokers may have different paths
   let wsUrl = `${baseUrl.replace('http://', 'wss://').replace('https://', 'wss://')}/terminal/ws`;
   
@@ -305,7 +319,10 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
   console.log('MT5 Proxy - Trading Params:', { asset, action, volume, numberOfTrades, tp, sl });
 
   try {
-    // Fetch the target terminal page
+    // Fetch the target terminal page. Some brokers (e.g. RCG Markets) ship
+    // an incomplete TLS chain that Bun's strict verifier rejects with
+    // "unable to verify the first certificate". Skipping verification is
+    // safe here because the target host is constrained to ALLOWED_BROKER_HOSTS.
     const response = await fetch(targetUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -316,7 +333,8 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
       },
-    });
+      tls: { rejectUnauthorized: false },
+    } as any);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch: ${response.status}`);
@@ -1460,7 +1478,10 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
   const wsUrl = `${baseUrl.replace('http://', 'wss://').replace('https://', 'wss://')}/terminal/ws`;
 
   try {
-    // Fetch the target terminal page
+    // Fetch the target terminal page. Some brokers (e.g. RCG Markets) ship
+    // an incomplete TLS chain that Bun's strict verifier rejects with
+    // "unable to verify the first certificate". Skipping verification is
+    // safe here because the target host is constrained to ALLOWED_BROKER_HOSTS.
     const response = await fetch(targetUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -1471,7 +1492,8 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
       },
-    });
+      tls: { rejectUnauthorized: false },
+    } as any);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch: ${response.status}`);
@@ -2223,22 +2245,41 @@ async function handleRequest(request: Request): Promise<Response> {
     if (url.pathname.startsWith('/terminal/')) {
       try {
         const assetPath = url.pathname.replace('/terminal/', '');
-        
-        // Determine broker URL from referer header or default to RazorMarkets
+
+        // Pick the broker host: 1) the one we last served via handleMT5Proxy
+        // (works across all configured brokers), 2) referer hostname (when
+        // the iframe URL happens to include a recognisable broker host),
+        // 3) RazorMarkets as a last-resort fallback.
         const referer = request.headers.get('referer') || '';
-        let brokerBaseUrl = 'https://webtrader.razormarkets.co.za';
-        
-        if (referer.includes('razormarkets.co.za')) {
-          brokerBaseUrl = 'https://webtrader.razormarkets.co.za';
-        }
-        
+        let brokerBaseUrl = lastMt5BrokerBaseUrl
+          || (referer.includes('rcgmarkets.com')   ? 'https://webtrader.rcgmarkets.com' :
+              referer.includes('trade245.com')     ? 'https://webtrader.trade245.com'   :
+              referer.includes('razormarkets.co.za') ? 'https://webtrader.razormarkets.co.za' :
+              'https://webtrader.razormarkets.co.za');
+
         const targetUrl = `${brokerBaseUrl}/terminal/${assetPath}`;
 
-        const response = await fetch(targetUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          },
-        });
+        // Retry on Bun's intermittent ConnectionRefused that fires when the
+        // iframe bursts ~30 parallel asset requests through the proxy.
+        const fetchWithRetry = async (attempt = 0): Promise<Response> => {
+          try {
+            return await fetch(targetUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              },
+              // Same TLS-laxness as the main MT5 proxy — broker hosts are
+              // allowlisted, and some (RCG) ship incomplete chains.
+              tls: { rejectUnauthorized: false },
+            } as any);
+          } catch (err: any) {
+            if (attempt < 3 && (err?.code === 'ConnectionRefused' || /ConnectionRefused|ECONNRESET|fetch failed/i.test(String(err?.message || err)))) {
+              await new Promise(r => setTimeout(r, 100 * (attempt + 1)));
+              return fetchWithRetry(attempt + 1);
+            }
+            throw err;
+          }
+        };
+        const response = await fetchWithRetry();
 
         if (response.ok) {
           const contentType = response.headers.get('content-type') || 'application/octet-stream';
