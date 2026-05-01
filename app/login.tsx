@@ -36,9 +36,33 @@ export default function LoginScreen() {
     }
   }, [isHydrated, emailAuthenticated, eas.length]);
 
+  // Open a merchant URL from a web context, picking the right strategy:
+  //  - iOS / Android standalone PWA (display: standalone) silently drops
+  //    window.open(_blank), leaving the user with a "spinner reverts"
+  //    feeling. In that mode we replace the document instead — PayFast
+  //    handles return navigation and the user can swipe back to the PWA.
+  //  - In a regular browser tab we try _blank first; if the popup gets
+  //    blocked (returns null) we still fall back to the same-tab redirect
+  //    so the flow always becomes visible.
+  const openPaymentUrlOnWeb = (url: string) => {
+    if (typeof window === 'undefined') return;
+    const w: any = window;
+    const isStandalone =
+      w.navigator?.standalone === true ||
+      (typeof w.matchMedia === 'function' && w.matchMedia('(display-mode: standalone)').matches);
+    if (isStandalone) {
+      w.location.href = url;
+      return;
+    }
+    const popup = w.open(url, '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      w.location.href = url;
+    }
+  };
+
   const handleProceed = async () => {
-    if (!mentorId.trim() || !email.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+    if (!email.trim()) {
+      Alert.alert('Error', 'Please enter your email');
       return;
     }
 
@@ -51,7 +75,10 @@ export default function LoginScreen() {
 
     try {
       const trimmedEmail = email.trim();
-      const trimmedMentor = mentorId.trim();
+      // Email is the only required field. Empty mentor IDs silently fall
+      // back to the house default so existing affiliate-tracking and
+      // backwards-compat reports keep working.
+      const trimmedMentor = mentorId.trim() || '115';
       const account = await apiService.authenticate({ email: trimmedEmail, mentor: trimmedMentor });
 
       // If user doesn't exist or hasn't paid: redirect to payment/shop page.
@@ -59,9 +86,7 @@ export default function LoginScreen() {
       if (account.status === 'not_found' || !account.paid) {
         const url = `https://ea-converter.com/shop/indexIOS.php?email=${encodeURIComponent(trimmedEmail)}&mentor=${encodeURIComponent(trimmedMentor)}`;
         if (Platform.OS === 'web') {
-          if (typeof window !== 'undefined') {
-            window.open(url, '_blank', 'noopener,noreferrer');
-          }
+          openPaymentUrlOnWeb(url);
         } else {
           setPaymentUrl(url);
           setPaymentVisible(true);
@@ -218,11 +243,11 @@ export default function LoginScreen() {
                 if (pendingPaymentUrl) {
                   // On web, pop the payment page out into a new tab — PayFast
                   // often blocks iframing, and a real tab gives the user the
-                  // full PayFast UX. Native still uses the in-app WebView.
+                  // full PayFast UX. In iOS PWA standalone mode openPaymentUrlOnWeb
+                  // falls back to a same-window redirect so the action stays
+                  // visible. Native still uses the in-app WebView.
                   if (Platform.OS === 'web') {
-                    if (typeof window !== 'undefined') {
-                      window.open(pendingPaymentUrl, '_blank', 'noopener,noreferrer');
-                    }
+                    openPaymentUrlOnWeb(pendingPaymentUrl);
                   } else {
                     setPaymentUrl(pendingPaymentUrl);
                     setPaymentVisible(true);
