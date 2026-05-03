@@ -269,6 +269,40 @@ class ApiService {
     };
   }
 
+  // Register an (email, ref_code) attribution before the user is sent to
+  // payment. The backend joins this on email when the PayFast webhook fires
+  // and credits the affiliate exactly the same as the /r/CODE web landing.
+  // Soft-fail: callers should never block payment on a failed track.
+  async trackAffiliate(email: string, refCode: string): Promise<{ ok: boolean; affiliate_name?: string; error?: string }> {
+    if (!email || !refCode) return { ok: false, error: 'Email and referral code required' };
+
+    const endpoint = `${BASE_URL ? `${BASE_URL}` : ''}/api/affiliate-track`;
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          ref_code: refCode.trim().toUpperCase(),
+        }),
+      });
+    } catch {
+      return { ok: false, error: 'Network error' };
+    }
+
+    try {
+      const data = await res.json();
+      return {
+        ok: Boolean(data?.ok),
+        affiliate_name: data?.affiliate_name,
+        error: data?.error,
+      };
+    } catch {
+      return { ok: false, error: 'Invalid response' };
+    }
+  }
+
   async getSignals(phoneSecret: string): Promise<SignalsResponse> {
     void phoneSecret;
     return { message: 'error' };
