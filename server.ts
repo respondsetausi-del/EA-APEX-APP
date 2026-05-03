@@ -2025,6 +2025,17 @@ async function handleApi(request: Request): Promise<Response> {
       return new Response('Method Not Allowed', { status: 405 });
     }
 
+    if (pathname === '/api/affiliate-track') {
+      const route = await import('./app/api/affiliate-track/route.ts');
+      if (request.method === 'POST' && typeof route.POST === 'function') {
+        return route.POST(request) as Promise<Response>;
+      }
+      if (request.method === 'GET' && typeof route.GET === 'function') {
+        return route.GET() as Promise<Response>;
+      }
+      return new Response('Method Not Allowed', { status: 405 });
+    }
+
     if (pathname === '/api/auth-license') {
       if (request.method === 'GET') {
         return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });

@@ -1,14 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, Alert, ActivityIndicator, Image, Linking, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
 import { router } from 'expo-router';
 // Networking disabled: avoid external browser/payment flows
 import { useApp } from '@/providers/app-provider';
 import { apiService } from '@/services/api';
 
+const REF_CODE_KEY = '@eaconverter_ref_code';
+const REF_CODE_REGEX = /^EAC-[A-Z0-9]{4,8}$/;
+
 export default function LoginScreen() {
   const [mentorId, setMentorId] = useState<string>('');
   const [email, setEmail] = useState<string>('');
+  const [refCode, setRefCode] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState<boolean>(false);
   // In-app modal (reliable on iOS Safari)
@@ -35,6 +40,43 @@ export default function LoginScreen() {
       router.replace('/license');
     }
   }, [isHydrated, emailAuthenticated, eas.length]);
+
+  // Prefill referral code from a deep link (?ref=EAC-XXXX) or, failing
+  // that, the last value the user typed. Deep-link wins so a fresh
+  // marketing URL always overrides a stale stored code.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let urlRef = '';
+      try {
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          const sp = new URLSearchParams(window.location.search);
+          urlRef = (sp.get('ref') || '').trim().toUpperCase();
+        } else {
+          const initial = await Linking.getInitialURL();
+          if (initial) {
+            const qIdx = initial.indexOf('?');
+            if (qIdx !== -1) {
+              const sp = new URLSearchParams(initial.slice(qIdx + 1));
+              urlRef = (sp.get('ref') || '').trim().toUpperCase();
+            }
+          }
+        }
+      } catch {}
+
+      if (urlRef && REF_CODE_REGEX.test(urlRef)) {
+        if (!cancelled) setRefCode(urlRef);
+        try { await AsyncStorage.setItem(REF_CODE_KEY, urlRef); } catch {}
+        return;
+      }
+
+      try {
+        const stored = await AsyncStorage.getItem(REF_CODE_KEY);
+        if (!cancelled && stored && REF_CODE_REGEX.test(stored)) setRefCode(stored);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Open a merchant URL from a web context, picking the right strategy:
   //  - iOS / Android standalone PWA (display: standalone) silently drops
@@ -84,6 +126,19 @@ export default function LoginScreen() {
       // If user doesn't exist or hasn't paid: redirect to payment/shop page.
       // On web, pop into a new tab (PayFast often refuses to be iframed).
       if (account.status === 'not_found' || !account.paid) {
+        // Soft-fail affiliate attribution: register the (email, ref) pair
+        // BEFORE the redirect so the webhook has the link when payment
+        // lands. Failure here must not block the user from paying.
+        const trimmedRef = refCode.trim().toUpperCase();
+        if (trimmedRef && REF_CODE_REGEX.test(trimmedRef)) {
+          try {
+            await apiService.trackAffiliate(trimmedEmail, trimmedRef);
+            await AsyncStorage.setItem(REF_CODE_KEY, trimmedRef);
+          } catch (e) {
+            console.warn('Affiliate track failed (non-blocking):', e);
+          }
+        }
+
         const url = `https://ea-converter.com/shop/indexIOS.php?email=${encodeURIComponent(trimmedEmail)}&mentor=${encodeURIComponent(trimmedMentor)}`;
         if (Platform.OS === 'web') {
           openPaymentUrlOnWeb(url);
@@ -196,6 +251,17 @@ export default function LoginScreen() {
                 value={mentorId}
                 onChangeText={setMentorId}
                 autoCapitalize="none"
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Referral Code (optional)"
+                placeholderTextColor="#999999"
+                value={refCode}
+                onChangeText={(text) => setRefCode(text.toUpperCase())}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={12}
               />
 
               <TextInput
