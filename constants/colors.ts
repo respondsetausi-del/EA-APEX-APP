@@ -1,3 +1,6 @@
+// Set to true to bypass login page (e.g. when DB is unreachable). Re-enable when auth is fixed.
+export const LOGIN_DISABLED = true;
+
 export default {
   primary: '#DC2626',
   secondary: '#000000',

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Animated } from 'react-native';
-import { Mic, MicOff, X } from 'lucide-react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Animated, Modal, ScrollView } from 'react-native';
+import { Mic, MicOff, X, Info } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { parseCommand, describeOrder, hasAllRequired, type ParsedOrder } from '@/utils/trade-command-parser';
 import { useApp } from '@/providers/app-provider';
@@ -21,6 +21,11 @@ interface VoiceCommandPillProps {
   eaName?: string;
   eaCount?: number;
   activeSymbolCount?: number;
+  // Theme/card switching
+  onSetPanelStyle?: (style: string) => void;
+  onSetVoiceStyle?: (style: string) => void;
+  onSetLayoutStyle?: (style: string) => void;
+  onSetScannerStyle?: (style: string) => void;
 }
 
 interface VoiceCommand {
@@ -33,6 +38,17 @@ const COLOR_MAP: Record<string, string> = {
   cyan: '#00BFFF', blue: '#00BFFF', purple: '#A855F7', green: '#00FF88',
   pink: '#FF3366', orange: '#FF6B00', gold: '#FFD700', yellow: '#FFD700',
   magenta: '#FF00FF', red: '#FF3366',
+};
+
+// Style name → key lookups for voice switching
+const PANEL_STYLE_MAP: Record<string, string> = {
+  pill: 'A', stack: 'B', circle: 'C', grid: 'D', float: 'E',
+};
+const LAYOUT_STYLE_MAP: Record<string, string> = {
+  hero: '1', center: '2', dash: '3', dashboard: '3', cine: '4', cinema: '4', card: '5', cards: '5',
+};
+const SCANNER_STYLE_MAP: Record<string, string> = {
+  pill: 'A', radar: 'F', terminal: 'H', power: 'I', hybrid: 'K',
 };
 
 // Known symbols accepted by the "trade X" shortcut. Anything outside this
@@ -65,39 +81,56 @@ function resolveSpokenSymbol(raw: string): string | null {
 }
 
 export const VOICE_COMMANDS: VoiceCommand[] = [
+  // Navigation
   { patterns: [/open\s+quotes?/i, /show\s+quotes?/i, /go\s+(?:to\s+)?quotes?/i, /quotes?\s+screen/i], action: 'nav_quotes', label: 'Opening Quotes' },
   { patterns: [/open\s+(?:meta\s*trader|mt[45])/i, /show\s+(?:meta\s*trader|mt[45])/i, /go\s+(?:to\s+)?(?:meta\s*trader|mt[45])/i], action: 'nav_metatrader', label: 'Opening MetaTrader' },
   { patterns: [/\bgo\s+back\b/i, /\bnavigate\s+back\b/i, /\bprevious\s+screen\b/i], action: 'go_back', label: 'Going Back' },
   { patterns: [/\bgo\s+home\b/i, /\bhome\s+screen\b/i, /\btake\s+me\s+home\b/i], action: 'nav_home', label: 'Going Home' },
-  { patterns: [/\bscan\s+chart\b/i, /\bstart\s+(?:the\s+)?scan(?:ner)?\b/i, /\bopen\s+(?:the\s+)?scan(?:ner)?\b/i, /\bscan\s+this\b/i], action: 'open_scanner', label: 'Opening Scanner' },
+  // Scanner
+  { patterns: [/\bscan\s+chart\b/i, /\bstart\s+(?:the\s+)?scan(?:ner)?\b/i, /\bopen\s+(?:the\s+)?scan(?:ner)?\b/i, /\bscan\s+this\b/i, /\banalyze\s+(?:the\s+)?chart\b/i, /\bchart\s+analysis\b/i], action: 'open_scanner', label: 'Opening Scanner' },
+  // Bot control
   { patterns: [/start\s+trad/i, /activate\s+(?:the\s+)?bot/i, /turn\s+on\s+(?:the\s+)?bot/i, /enable\s+trad/i, /bot\s+on/i], action: 'bot_start', label: 'Activating Bot' },
   { patterns: [/stop\s+trad/i, /deactivate\s+(?:the\s+)?bot/i, /turn\s+off\s+(?:the\s+)?bot/i, /disable\s+trad/i, /bot\s+off/i], action: 'bot_stop', label: 'Deactivating Bot' },
+  // Auto-trade
   { patterns: [/(?:enable|turn\s+on|switch\s+on)\s+auto[-\s]?trade/i, /auto[-\s]?trade\s+on/i], action: 'auto_trade_on', label: 'Auto-Trade On' },
   { patterns: [/(?:disable|turn\s+off|switch\s+off)\s+auto[-\s]?trade/i, /auto[-\s]?trade\s+off/i], action: 'auto_trade_off', label: 'Auto-Trade Off' },
-  // "trade X" — X must resolve to a known symbol, otherwise we fall through.
+  // Trade a specific symbol — X must resolve to a known symbol
   { patterns: [/^\s*trade\s+([a-z][a-z0-9\s]{1,20})\s*$/i], action: 'trade_symbol', label: 'Opening Trade' },
+  // Scanner trade shortcut — execute from last scan result
+  { patterns: [/\bexecute\s+(?:the\s+)?(?:scan(?:ner)?\s+)?trade\b/i, /\bfire\s+(?:the\s+)?(?:scan(?:ner)?\s+)?trade\b/i, /\bplace\s+(?:the\s+)?scan(?:ner)?\s+trade\b/i], action: 'open_scanner', label: 'Executing Scanner Trade' },
+  // EA management
   { patterns: [/add\s+(?:a\s+)?(?:new\s+)?ea/i, /new\s+ea/i, /add\s+(?:a\s+)?(?:new\s+)?bot/i], action: 'add_ea', label: 'Adding New EA' },
   { patterns: [/remove\s+(?:the\s+)?(?:this\s+)?ea/i, /delete\s+(?:the\s+)?(?:this\s+)?ea/i, /remove\s+(?:the\s+)?(?:this\s+)?bot/i], action: 'remove_ea', label: 'Removing EA' },
+  // Info queries
   { patterns: [/(?:what(?:'?s| is)?\s+(?:my\s+)?)?status/i, /how(?:'?s| is)?\s+(?:my\s+)?bot/i], action: 'query_status', label: 'Checking Status' },
   { patterns: [/how\s+many\s+ea/i, /how\s+many\s+bot/i, /ea\s+count/i], action: 'query_count', label: 'Counting EAs' },
-  // Only fire on an explicit "change/set/switch color" verb or "make it <namedColor>".
-  // The old generic `(\w+) color` shadowed everything from "avatar color" to
-  // "home color" and was firing set_color on unrelated sentences.
+  { patterns: [/how\s+many\s+trades?/i, /trade\s+count/i, /(?:what(?:'?s| is)?\s+(?:my\s+)?)?trade\s+limit/i], action: 'query_trade_limit', label: 'Checking Trade Limit' },
+  // Theme / appearance
   { patterns: [/(?:change|set|switch)\s+(?:the\s+)?colou?r\s+(?:to\s+)?(\w+)/i, /make\s+it\s+(cyan|blue|purple|green|pink|orange|gold|yellow|magenta|red)/i], action: 'set_color', label: 'Changing Color' },
   { patterns: [/(?:turn|switch)\s+on\s+(?:the\s+)?avatar/i, /show\s+(?:the\s+)?avatar/i, /avatar\s+on/i], action: 'avatar_on', label: 'Avatar On' },
   { patterns: [/(?:turn|switch)\s+off\s+(?:the\s+)?avatar/i, /hide\s+(?:the\s+)?avatar/i, /avatar\s+off/i], action: 'avatar_off', label: 'Avatar Off' },
+  // Theme / card / layout switching
+  { patterns: [/(?:change|set|switch)\s+(?:the\s+)?panel\s+(?:style\s+)?(?:to\s+)?(\w+)/i, /panel\s+style\s+(\w+)/i], action: 'set_panel_style', label: 'Changing Panel' },
+  { patterns: [/(?:change|set|switch)\s+(?:the\s+)?voice\s+(?:style\s+)?(?:to\s+)?(\w+)/i, /voice\s+style\s+(\w+)/i], action: 'set_voice_style', label: 'Changing Voice Style' },
+  { patterns: [/(?:change|set|switch)\s+(?:the\s+)?layout\s+(?:to\s+)?(\w+)/i, /layout\s+(\w+)/i, /(?:change|set|switch)\s+(?:the\s+)?theme\s+(?:to\s+)?(\w+)/i, /theme\s+(\w+)/i], action: 'set_layout', label: 'Changing Layout' },
+  { patterns: [/(?:change|set|switch)\s+(?:the\s+)?scanner\s+(?:style\s+)?(?:to\s+)?(\w+)/i, /scanner\s+style\s+(\w+)/i, /scanner\s+(\w+)/i], action: 'set_scanner_style', label: 'Changing Scanner' },
+  // Account
   { patterns: [/\b(?:log\s*out|sign\s*out|log\s+me\s+out)\b/i], action: 'logout', label: 'Logging Out' },
+  // Help
+  { patterns: [/\b(?:help|what\s+can\s+(?:you|I)\s+(?:do|say)|commands?|voice\s+commands?)\b/i], action: 'help', label: 'Showing Help' },
 ];
 
 export const VOICE_HELP = [
   { category: 'NAVIGATION', commands: ['"Open quotes"', '"Go to MetaTrader"', '"Go home"', '"Go back"'] },
-  { category: 'SCANNER', commands: ['"Scan chart"', '"Open scanner"'] },
-  { category: 'TRADING', commands: ['"Start trading"', '"Stop trading"', '"Trade EURUSD"', '"Trade gold"'] },
+  { category: 'SCANNER', commands: ['"Scan chart"', '"Open scanner"', '"Analyze chart"', '"Execute scanner trade"'] },
+  { category: 'TRADING', commands: ['"Start trading"', '"Stop trading"', '"Trade EURUSD"', '"Trade gold"', '"Buy 2 lots of gold"'] },
   { category: 'AUTO-TRADE', commands: ['"Enable auto trade"', '"Disable auto trade"'] },
   { category: 'EA', commands: ['"Add new EA"', '"Remove EA"'] },
-  { category: 'INFO', commands: ['"What\'s my status?"', '"How many EAs?"'] },
+  { category: 'INFO', commands: ['"What\'s my status?"', '"How many EAs?"', '"Trade limit"'] },
   { category: 'SETTINGS', commands: ['"Change color to purple"', '"Make it red"', '"Avatar on"', '"Avatar off"'] },
+  { category: 'THEMES', commands: ['"Layout hero"', '"Layout card"', '"Panel pill"', '"Scanner radar"', '"Voice style stack"'] },
   { category: 'ACCOUNT', commands: ['"Log me out"'] },
+  { category: 'HELP', commands: ['"Help"', '"What can I say?"', '"Voice commands"'] },
 ];
 
 function speak(text: string): Promise<void> {
@@ -119,12 +152,14 @@ export function VoiceCommandPill({
   onSetGlowColor, onToggleAvatar,
   onRequestScan, onToggleAutoTrade, onLogout, autoTradeEnabled = false,
   eaName = 'EA', eaCount = 0, activeSymbolCount = 0,
+  onSetPanelStyle, onSetVoiceStyle, onSetLayoutStyle, onSetScannerStyle,
 }: VoiceCommandPillProps) {
   const { placeManualTrade } = useApp();
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [feedback, setFeedback] = useState('');
   const [supported, setSupported] = useState(true);
+  const [showHelp, setShowHelp] = useState(false);
   const recognitionRef = useRef<any>(null);
   const feedbackTimer = useRef<NodeJS.Timeout | null>(null);
   const wantActiveRef = useRef(false);
@@ -285,6 +320,42 @@ export function VoiceCommandPill({
           case 'query_count':
             spoken = `${eaCount} EA${eaCount !== 1 ? 's' : ''} connected`;
             showFeedback(spoken); await speak(spoken); return;
+          case 'query_trade_limit':
+            spoken = 'Scanner can execute up to 100 trades per batch';
+            showFeedback(spoken); await speak(spoken); return;
+          case 'set_panel_style': {
+            const pw = (match[1] || '').toLowerCase();
+            const pk = PANEL_STYLE_MAP[pw];
+            if (pk && onSetPanelStyle) { onSetPanelStyle(pk); spoken = `Panel style changed to ${pw}`; }
+            else { spoken = `Unknown panel style ${pw}. Try pill, stack, circle, grid, or float`; }
+            showFeedback(spoken); await speak(spoken); return;
+          }
+          case 'set_voice_style': {
+            const vw = (match[1] || '').toLowerCase();
+            const vk = PANEL_STYLE_MAP[vw]; // same keys as panel
+            if (vk && onSetVoiceStyle) { onSetVoiceStyle(vk); spoken = `Voice style changed to ${vw}`; }
+            else { spoken = `Unknown voice style ${vw}. Try pill, stack, circle, grid, or float`; }
+            showFeedback(spoken); await speak(spoken); return;
+          }
+          case 'set_layout': {
+            const lw = (match[1] || match[2] || '').toLowerCase();
+            const lk = LAYOUT_STYLE_MAP[lw];
+            if (lk && onSetLayoutStyle) { onSetLayoutStyle(lk); spoken = `Layout changed to ${lw}`; }
+            else { spoken = `Unknown layout ${lw}. Try hero, center, dash, cine, or card`; }
+            showFeedback(spoken); await speak(spoken); return;
+          }
+          case 'set_scanner_style': {
+            const sw = (match[1] || '').toLowerCase();
+            const sk = SCANNER_STYLE_MAP[sw];
+            if (sk && onSetScannerStyle) { onSetScannerStyle(sk); spoken = `Scanner changed to ${sw}`; }
+            else { spoken = `Unknown scanner style ${sw}. Try pill, radar, terminal, power, or hybrid`; }
+            showFeedback(spoken); await speak(spoken); return;
+          }
+          case 'help':
+            spoken = 'Try: scan chart, trade gold, start trading, change color, layout card, or ask my status';
+            showFeedback(spoken); await speak(spoken);
+            setShowHelp(true);
+            return;
           case 'set_color': {
             const cw = (match[1] || match[2] || '').toLowerCase();
             const hex = COLOR_MAP[cw];
@@ -360,7 +431,7 @@ export function VoiceCommandPill({
     spoken = `${text}. Command not recognized`;
     showFeedback(`"${text}" — not recognized`);
     await speak(spoken);
-  }, [isBotActive, onToggleBot, onRemoveEA, onAddEA, onSetGlowColor, onToggleAvatar, onRequestScan, onToggleAutoTrade, onLogout, autoTradeEnabled, eaName, eaCount, activeSymbolCount, showFeedback, placeManualTrade]);
+  }, [isBotActive, onToggleBot, onRemoveEA, onAddEA, onSetGlowColor, onToggleAvatar, onRequestScan, onToggleAutoTrade, onLogout, autoTradeEnabled, eaName, eaCount, activeSymbolCount, showFeedback, placeManualTrade, onSetPanelStyle, onSetVoiceStyle, onSetLayoutStyle, onSetScannerStyle]);
 
   const toggleListening = useCallback(() => {
     if (!supported) {
@@ -420,17 +491,57 @@ export function VoiceCommandPill({
     </View>
   );
 
+  const renderInfoButton = () => (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={() => setShowHelp(true)}
+      style={[s.infoBtn, { borderColor: glowColor + '40' }]}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+    >
+      <Info color={glowColor + '80'} size={14} />
+    </TouchableOpacity>
+  );
+
+  const renderHelpModal = () => (
+    <Modal visible={showHelp} transparent animationType="fade" onRequestClose={() => setShowHelp(false)}>
+      <View style={s.helpOverlay}>
+        <View style={[s.helpSheet, { borderColor: glowColor + '30' }]}>
+          <View style={s.helpHeader}>
+            <Text style={[s.helpTitle, { color: glowColor }]}>VOICE COMMANDS</Text>
+            <TouchableOpacity onPress={() => setShowHelp(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <X color={glowColor} size={20} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={s.helpScroll} showsVerticalScrollIndicator={false}>
+            {VOICE_HELP.map((section) => (
+              <View key={section.category} style={s.helpSection}>
+                <Text style={[s.helpCategory, { color: glowColor }]}>{section.category}</Text>
+                {section.commands.map((cmd, i) => (
+                  <Text key={i} style={s.helpCmd}>{cmd}</Text>
+                ))}
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+
   // ── Variant A: Pill (current) ──
   if (variant === 'A') {
     return (
-      <TouchableOpacity activeOpacity={0.7} onPress={toggleListening}
-        style={[s.pill, { borderColor: isListening ? glowColor : glowColor + '80', shadowColor: glowColor }, glow(isListening)]}>
-        <View style={[s.micCircle, { borderColor: glowColor + '50', backgroundColor: isListening ? glowColor + '25' : glowColor + '12' }]}>
-          {isListening ? <MicOff color={glowColor} size={18} /> : <Mic color={glowColor} size={18} />}
-        </View>
-        {renderText()}
-        {renderBars()}
-      </TouchableOpacity>
+      <View style={s.voiceRow}>
+        <TouchableOpacity activeOpacity={0.7} onPress={toggleListening}
+          style={[s.pill, { borderColor: isListening ? glowColor : glowColor + '80', shadowColor: glowColor, flex: 1 }, glow(isListening)]}>
+          <View style={[s.micCircle, { borderColor: glowColor + '50', backgroundColor: isListening ? glowColor + '25' : glowColor + '12' }]}>
+            {isListening ? <MicOff color={glowColor} size={18} /> : <Mic color={glowColor} size={18} />}
+          </View>
+          {renderText()}
+          {renderBars()}
+        </TouchableOpacity>
+        {renderInfoButton()}
+        {renderHelpModal()}
+      </View>
     );
   }
 
@@ -535,7 +646,7 @@ const s = StyleSheet.create({
   bar: { width: 2, borderRadius: 1 },
 
   // A: Pill
-  pill: { backgroundColor: '#080D1A', borderRadius: 28, flexDirection: 'row', alignItems: 'center', height: 56, paddingHorizontal: 20, marginBottom: 20, borderWidth: 1, gap: 14, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 8 },
+  pill: { backgroundColor: '#080D1A', borderRadius: 28, flexDirection: 'row', alignItems: 'center', height: 56, paddingHorizontal: 20, borderWidth: 1, gap: 14, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 8 },
   micCircle: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
 
   // B: Compact
@@ -556,6 +667,20 @@ const s = StyleSheet.create({
   waveText: { fontSize: 11, fontWeight: '600', letterSpacing: 1, flex: 1 },
   waveBars: { flexDirection: 'row', alignItems: 'center', gap: 1.5, height: 28, paddingRight: 4 },
   waveMicBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+
+  // Voice row + info button
+  voiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 },
+  infoBtn: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, backgroundColor: '#080D1A', alignItems: 'center', justifyContent: 'center' },
+
+  // Help modal
+  helpOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  helpSheet: { backgroundColor: '#0D1117', borderRadius: 20, borderWidth: 1, width: '100%', maxWidth: 400, maxHeight: '80%', overflow: 'hidden' },
+  helpHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12 },
+  helpTitle: { fontSize: 16, fontWeight: '800', letterSpacing: 1.5 },
+  helpScroll: { paddingHorizontal: 20, paddingBottom: 20 },
+  helpSection: { marginBottom: 16 },
+  helpCategory: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, marginBottom: 6, opacity: 0.7 },
+  helpCmd: { fontSize: 13, color: '#CCC', lineHeight: 22, paddingLeft: 8 },
 });
 
 export default VoiceCommandPill;

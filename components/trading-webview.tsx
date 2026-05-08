@@ -56,6 +56,9 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const heartbeatIndexRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(Date.now());
+  // Once a real script message arrives, suppress the heartbeat permanently
+  // for this session so fake phases never overwrite real progress.
+  const scriptAliveRef = useRef<boolean>(false);
   const webViewRef = useRef<WebView>(null);
 
   // Keep-alive session state
@@ -540,16 +543,26 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
             
             // Execute multiple orders with proper delays and enhanced tracking
             console.log('Starting execution of ${numberOfOrders} orders for ${asset}');
-            
+
+            // Keepalive: ping every 5s so the parent knows the iframe is alive
+            // and iOS Safari doesn't throttle our timers.
+            var _keepAlive = setInterval(function() {
+              window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'step',
+                message: 'Executing orders... (keepalive)'
+              }));
+            }, 5000);
+
             function executeOrderSequence(orderIndex) {
               if (orderIndex >= ${numberOfOrders}) {
+                clearInterval(_keepAlive);
                 // All orders completed
                 setTimeout(function() {
                   window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
                     type: 'success',
                     message: 'All ${numberOfOrders} order(s) executed successfully for ${asset}'
                   }));
-                  
+
                   // Close execution window after 3 seconds
                   setTimeout(function() {
                     window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -560,16 +573,16 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
                 }, 2000);
                 return;
               }
-              
+
               console.log('Executing MT4 order ' + (orderIndex + 1) + ' of ${numberOfOrders}');
               window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
                 type: 'step',
                 message: 'Executing MT4 order ' + (orderIndex + 1) + ' of ${numberOfOrders} for ${asset}...'
               }));
-              
+
               // Set parameters for this order
               eval(setTradeParams);
-              
+
               // Execute order after parameters are set
               setTimeout(function() {
                 console.log('Placing MT4 order ' + (orderIndex + 1) + ' - ${action}');
@@ -1174,19 +1187,26 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         setTimeout(step6_ExecuteTrades, 1000);
       }
       
+      // Keepalive: ping every 5s so the parent knows the iframe is alive
+      var _mt5KeepAlive = null;
+
       // Step 6: Execute all trades
       function step6_ExecuteTrades() {
         sendProgress('Starting trade execution (${numberOfOrders} order(s))...');
+        _mt5KeepAlive = setInterval(function() {
+          sendProgress('Executing orders... (keepalive)');
+        }, 5000);
         executeSingleTrade(0);
       }
-      
+
       // Execute a single trade
       function executeSingleTrade(orderIndex) {
         if (orderIndex >= globalTotalOrders) {
+          if (_mt5KeepAlive) clearInterval(_mt5KeepAlive);
           // All trades completed
           var elapsed = ((Date.now() - globalStartTime) / 1000).toFixed(1);
           sendSuccess('✅ All ' + globalTotalOrders + ' order(s) executed for ${asset} in ' + elapsed + 's');
-          
+
           setTimeout(function() {
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'close',
@@ -1415,6 +1435,8 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
   }, []);
 
   const startHeartbeat = useCallback(() => {
+    // Once the real script has sent messages, never restart the fake heartbeat.
+    if (scriptAliveRef.current) return;
     stopHeartbeat();
     const phases: string[] = [
       'Loading terminal...', 'Connecting to broker...', 'Preparing login...', 'Authenticating...', 'Searching symbol...', 'Setting up order...'
@@ -1423,7 +1445,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
     setCurrentStep('Initializing...');
     lastUpdateRef.current = Date.now();
     heartbeatRef.current = setInterval(() => {
-      // If there was a recent real update, skip heartbeat
+      if (scriptAliveRef.current) { stopHeartbeat(); return; }
       if (Date.now() - lastUpdateRef.current < 2000) return;
       heartbeatIndexRef.current = (heartbeatIndexRef.current + 1) % phases.length;
       setCurrentStep(phases[heartbeatIndexRef.current]);
@@ -1441,13 +1463,9 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
         case 'step':
         case 'step_update':
           console.log('Trading step update:', data.message);
+          scriptAliveRef.current = true;
           stopHeartbeat();
           if (data.message) setCurrentStep(data.message);
-          setTimeout(() => {
-            if (Date.now() - lastUpdateRef.current > 3000) {
-              startHeartbeat();
-            }
-          }, 3000);
           break;
         case 'success':
         case 'authentication_success':
@@ -1598,7 +1616,8 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
       // older than STALE_THRESHOLD_MS, treat the session as dead and
       // cold-start. Without this we dispatched blindly into a possibly
       // dead iframe and every subsequent trade failed silently.
-      const STALE_THRESHOLD_MS = 30_000;
+      const tradeCount = parseInt(tradeConfig?.numberOfTrades || '1', 10) || 1;
+      const STALE_THRESHOLD_MS = Math.max(30_000, tradeCount * 8_000);
       const fresh = Date.now() - lastUpdateRef.current <= STALE_THRESHOLD_MS;
       const canReuse = sessionWarm && sessionPlatform === tradeConfig?.platform && signal && fresh;
 
@@ -1628,6 +1647,7 @@ export function TradingWebView({ visible, signal, onClose }: TradingWebViewProps
           if (tradeConfig?.platform) markSessionWarm(tradeConfig.platform, false);
         }
         // Cold start: new session
+        scriptAliveRef.current = false;
         setLoading(true);
         setError(null);
         setTradeExecuted(false);

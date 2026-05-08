@@ -23,7 +23,7 @@ import { useApp } from '@/providers/app-provider';
 import type { EA } from '@/providers/app-provider';
 
 export default function HomeScreen() {
-  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, voiceStyle, layoutStyle, scannerStyle, heroHidden, scannerOpenRequest, autoTradeEnabled, setAutoTradeEnabled, setEmailAuthenticated, requestOpenScanner } = useApp();
+  const { eas, isFirstTime, setIsFirstTime, removeEA, isBotActive, setBotActive, setActiveEA, glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, activeSymbols, mt4Symbols, mt5Symbols, mt4Account, mt5Account, placeManualTrade, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, scannerOpenRequest, autoTradeEnabled, setAutoTradeEnabled, setEmailAuthenticated, requestOpenScanner } = useApp();
 
   // Safely get the primary EA (first one in the list)
   const primaryEA = Array.isArray(eas) && eas.length > 0 ? eas[0] : null;
@@ -462,8 +462,8 @@ export default function HomeScreen() {
     const cfg = lookupSymbolConfig(symbol);
     const rawCount = tradeCount.trim() || cfg?.count || '1';
     const count = parseInt(rawCount, 10);
-    if (!isFinite(count) || count < 1 || count > 50) {
-      setTradeError('Number of trades must be between 1 and 50.');
+    if (!isFinite(count) || count < 1 || count > 100) {
+      setTradeError('Number of trades must be between 1 and 100.');
       return;
     }
     const result = placeManualTrade({
@@ -1045,6 +1045,8 @@ export default function HomeScreen() {
         onLogout={async () => { await setEmailAuthenticated(false); router.replace('/login'); }}
         autoTradeEnabled={autoTradeEnabled}
         eaName={primaryEA?.name || 'EA'} eaCount={eas.length} activeSymbolCount={totalSymbols}
+        onSetPanelStyle={setPanelStyle} onSetVoiceStyle={setVoiceStyle}
+        onSetLayoutStyle={setLayoutStyle} onSetScannerStyle={setScannerStyle}
       />
     </View>
   );

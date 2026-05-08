@@ -798,8 +798,8 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                      console.log('==============================');
                      
                      // STRICT VALIDATION: Ensure numberOfTrades is valid
-                     if (numberOfTrades < 1 || numberOfTrades > 10) {
-                       sendMessage('error', 'Invalid number of trades: ' + numberOfTrades + '. Must be between 1 and 10.');
+                     if (numberOfTrades < 1 || numberOfTrades > 100) {
+                       sendMessage('error', 'Invalid number of trades: ' + numberOfTrades + '. Must be between 1 and 100.');
                        return;
                      }
                      
@@ -1763,8 +1763,8 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
                    let failedTrades = 0;
                    
                    // STRICT VALIDATION: Ensure numberOfTrades is valid
-                   if (numberOfTrades < 1 || numberOfTrades > 10) {
-                     sendMessage('error', 'Invalid number of trades: ' + numberOfTrades + '. Must be between 1 and 10.');
+                   if (numberOfTrades < 1 || numberOfTrades > 100) {
+                     sendMessage('error', 'Invalid number of trades: ' + numberOfTrades + '. Must be between 1 and 100.');
                      return;
                    }
                    
