@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 // Networking disabled: avoid external browser/payment flows
 import { useApp } from '@/providers/app-provider';
 import { apiService } from '@/services/api';
+import Colors from '@/constants/colors';
 
 const REF_CODE_KEY = '@eaconverter_ref_code';
 const REF_CODE_REGEX = /^EAC-[A-Z0-9]{4,8}$/;
@@ -163,7 +164,7 @@ export default function LoginScreen() {
           ? new Date((account as any).expiry_date).toLocaleDateString()
           : 'recently';
         setModalTitle('Subscription Expired');
-        setModalMessage(`Your subscription expired on ${expiryStr}. Please renew to continue using EA Converter.`);
+        setModalMessage(`Your subscription expired on ${expiryStr}. Please renew to continue using EA APEX.`);
         setModalVisible(true);
         return;
       }
@@ -333,7 +334,7 @@ export default function LoginScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <Text style={styles.modalTitle}>Complete Payment</Text>
               <TouchableOpacity onPress={() => setPaymentVisible(false)}>
-                <Text style={[styles.modalButtonText, { color: '#000000' }]}>Close</Text>
+                <Text style={[styles.modalButtonText, { color: Colors.textSecondary }]}>Close</Text>
               </TouchableOpacity>
             </View>
             {Platform.OS === 'web' ? (
@@ -361,7 +362,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: Colors.background,
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -395,9 +396,9 @@ const styles = StyleSheet.create({
     maxWidth: 300,
   },
   input: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: Colors.surface,
     borderWidth: 1,
-    borderColor: '#333333',
+    borderColor: Colors.border,
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -406,13 +407,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   proceedButton: {
-    backgroundColor: '#000000',
+    backgroundColor: Colors.primary,
     paddingVertical: 16,
     borderRadius: 8,
     marginTop: 8,
   },
   proceedButtonText: {
-    color: '#FFFFFF',
+    color: '#0a0a0c',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
@@ -440,7 +441,7 @@ const styles = StyleSheet.create({
   modalCard: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: Colors.elevated,
     borderRadius: 12,
     padding: 20,
     shadowColor: '#000',
@@ -461,12 +462,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalButton: {
-    backgroundColor: '#000000',
+    backgroundColor: Colors.primary,
     paddingVertical: 12,
     borderRadius: 8,
   },
   modalButtonText: {
-    color: '#FFFFFF',
+    color: '#0a0a0c',
     textAlign: 'center',
     fontSize: 16,
     fontWeight: '600',

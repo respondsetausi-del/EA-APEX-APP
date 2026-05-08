@@ -208,7 +208,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [warmupRequest, setWarmupRequest] = useState<WarmupRequest | null>(null);
   const [databaseSignal, setDatabaseSignal] = useState<DatabaseSignal | null>(null);
   const [isDatabaseSignalsPolling, setIsDatabaseSignalsPolling] = useState<boolean>(false);
-  const [glowColor, setGlowColorState] = useState<string>('#00BFFF');
+  const [glowColor, setGlowColorState] = useState<string>('#00FBFF');
   const [showHeroAvatar, setShowHeroAvatarState] = useState<boolean>(true);
   const [backgroundVideo, setBackgroundVideoState] = useState<string | null>(null);
   const [panelStyle, setPanelStyleState] = useState<string>('A');

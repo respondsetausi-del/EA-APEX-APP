@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { useApp } from '@/providers/app-provider';
 import { apiService } from '@/services/api';
+import Colors from '@/constants/colors';
 
 export default function LicenseScreen() {
   const [licenseKey, setLicenseKey] = useState<string>('');
@@ -192,7 +193,7 @@ export default function LicenseScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: Colors.background,
   },
   keyboardAvoidingView: {
     flex: 1,

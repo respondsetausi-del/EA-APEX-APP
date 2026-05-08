@@ -452,11 +452,11 @@ export function DynamicIsland({ visible, newSignal, onSignalDismiss }: DynamicIs
                 }}
               >
                 {isBotActive ? (
-                  <Square color="#DC2626" size={16} fill="#DC2626" />
+                  <Square color="#00FBFF" size={16} fill="#00FBFF" />
                 ) : (
                   <Play color="#FFFFFF" size={16} fill="#FFFFFF" />
                 )}
-                <Text style={[styles.controlButtonText, { color: isBotActive ? "#DC2626" : "#FFFFFF" }]}>
+                <Text style={[styles.controlButtonText, { color: isBotActive ? "#00FBFF" : "#FFFFFF" }]}>
                   {isBotActive ? 'STOP' : 'START'}
                 </Text>
               </TouchableOpacity>
@@ -778,7 +778,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#16A34A',
   },
   sellBadge: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#00FBFF',
   },
   signalActionText: {
     color: '#FFFFFF',
@@ -822,7 +822,7 @@ const styles = StyleSheet.create({
     color: '#16A34A',
   },
   slValue: {
-    color: '#DC2626',
+    color: '#00FBFF',
   },
   signalFooter: {
     flexDirection: 'row',
@@ -900,7 +900,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#16A34A',
   },
   latestSellBadge: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#00FBFF',
   },
   latestSignalAction: {
     color: '#FFFFFF',
@@ -930,7 +930,7 @@ const styles = StyleSheet.create({
     color: '#16A34A',
   },
   latestSlValue: {
-    color: '#DC2626',
+    color: '#00FBFF',
   },
   latestSignalFooter: {
     flexDirection: 'row',

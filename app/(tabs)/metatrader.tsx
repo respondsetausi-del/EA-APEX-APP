@@ -1892,7 +1892,7 @@ export default function MetaTraderScreen() {
         {/* Authentication Status Display - Only shown during authentication */}
         {isAuthenticating && (
           <View style={styles.authStatusDisplay}>
-            <ActivityIndicator color={Platform.OS === 'ios' ? '#DC2626' : '#000000'} size="small" />
+            <ActivityIndicator color={Platform.OS === 'ios' ? '#00FBFF' : '#000000'} size="small" />
             <Text style={styles.authStatusDisplayText}>{authenticationStep}</Text>
           </View>
         )}
@@ -2225,7 +2225,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#16A34A', // Green when connected
   },
   disconnectedDot: {
-    backgroundColor: '#DC2626', // Red when authentication failed
+    backgroundColor: '#00FBFF', // Red when authentication failed
   },
   statusText: {
     fontSize: 12,
@@ -2236,7 +2236,7 @@ const styles = StyleSheet.create({
     color: '#16A34A',
   },
   disconnectedText: {
-    color: '#DC2626',
+    color: '#00FBFF',
   },
   logoContainer: {
     alignItems: 'center',
@@ -2514,7 +2514,7 @@ const styles = StyleSheet.create({
   errorContainer: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#DC2626',
+    backgroundColor: '#00FBFF',
     borderBottomWidth: 1,
     borderBottomColor: '#333333',
   },
@@ -2552,7 +2552,7 @@ const styles = StyleSheet.create({
   disabledLabel: {
     fontSize: 8,
     fontWeight: '700',
-    color: '#DC2626',
+    color: '#00FBFF',
     backgroundColor: '#2A2A2A',
     paddingHorizontal: 4,
     paddingVertical: 1,
@@ -2600,7 +2600,7 @@ const styles = StyleSheet.create({
     color: '#16A34A',
   },
   disconnectedStatus: {
-    color: '#DC2626',
+    color: '#00FBFF',
   },
   modalOverlay: {
     position: 'absolute',

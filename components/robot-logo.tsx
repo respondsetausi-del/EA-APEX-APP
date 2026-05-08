@@ -13,7 +13,7 @@ export function RobotLogo({ size = 80 }: RobotLogoProps) {
 
   return (
     <View style={[styles.container, { width: logoSize, height: logoSize }]}>
-      {/* Red Hat/Cap */}
+      {/* APEX accent hat */}
       <View style={[
         styles.hat,
         {
@@ -63,10 +63,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   hat: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#00FBFF',
   },
   face: {
-    backgroundColor: '#000000',
+    backgroundColor: '#0a0a0c',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,

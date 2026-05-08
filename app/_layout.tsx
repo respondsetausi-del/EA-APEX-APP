@@ -9,6 +9,7 @@ import { DynamicIsland } from "@/components/dynamic-island";
 import { RobotLogo } from "@/components/robot-logo";
 import { TradingWebView } from "@/components/trading-webview";
 import { AddToHomePrompt } from "@/components/add-to-home";
+import Colors from "@/constants/colors";
 
 // Early console suppression - must be at the very top
 if (typeof window !== 'undefined' && Platform.OS === 'web') {
@@ -100,7 +101,7 @@ class ErrorBoundary extends Component<
 const errorStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: Colors.background,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
@@ -120,7 +121,7 @@ const errorStyles = StyleSheet.create({
     marginBottom: 40,
   },
   button: {
-    backgroundColor: '#DC2626',
+    backgroundColor: Colors.primary,
     paddingHorizontal: 32,
     paddingVertical: 12,
     borderRadius: 8,
@@ -188,7 +189,7 @@ function AuthGate({ children }: { children: ReactNode }) {
   }, [isHydrated, emailAuthenticated, pathname, eas.length, router, isFirstTime]);
 
   if (!isHydrated) {
-    return <View style={{ flex: 1, backgroundColor: '#000000' }} />;
+    return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
   }
 
   return <>{children}</>;
@@ -375,14 +376,14 @@ export default function RootLayout() {
   }, []);
 
   if (!appIsReady) {
-    return <View style={{ flex: 1, backgroundColor: '#000000' }} />;
+    return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
   }
 
   return (
     <ErrorBoundary>
       <AppProvider>
-        <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
-          <StatusBar style="light" backgroundColor="#000000" translucent={false} />
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.background }}>
+          <StatusBar style="light" backgroundColor={Colors.background} translucent={false} />
           <RootLayoutNav />
         </GestureHandlerRootView>
       </AppProvider>

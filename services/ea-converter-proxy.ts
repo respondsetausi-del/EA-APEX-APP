@@ -11,7 +11,7 @@ const TIMEOUT_MS = 25000;
 const commonHeaders = {
   'Content-Type': 'application/json',
   'Accept': 'application/json',
-  'User-Agent': 'EAConverter-Web/1.0',
+  'User-Agent': 'EAAPEX-Web/1.0',
 };
 
 function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {

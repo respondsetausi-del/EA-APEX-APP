@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "EA Converter",
+    "name": "EA APEX",
     "slug": "ea-converter-app-bf6qtmx7-6jkhyg7w",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -10,20 +10,20 @@
     "newArchEnabled": true,
     "statusBar": {
       "style": "light",
-      "backgroundColor": "#000000",
+      "backgroundColor": "#0a0a0c",
       "translucent": false
     },
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#0a0a0c"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.ea-converter-automated-forex-trading-app-bf6qtmx7-6jkhyg7w",
       "statusBar": {
         "style": "light",
-        "backgroundColor": "#000000",
+        "backgroundColor": "#0a0a0c",
         "translucent": false
       },
       "infoPlist": {
@@ -56,25 +56,25 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#0a0a0c"
       },
       "package": "app.ea-converter-automated-forex-trading-app-bf6qtmx7-6jkhyg7w",
       "statusBar": {
         "style": "light",
-        "backgroundColor": "#000000",
+        "backgroundColor": "#0a0a0c",
         "translucent": false
       }
     },
     "web": {
       "favicon": "./assets/images/favicon.png",
-      "name": "EA Converter",
-      "shortName": "EA Converter",
+      "name": "EA APEX",
+      "shortName": "EA APEX",
       "startUrl": "/",
       "display": "standalone",
       "orientation": "portrait",
-      "themeColor": "#000000",
-      "backgroundColor": "#000000",
-      "description": "Automated Forex Trading EA Converter App",
+      "themeColor": "#00FBFF",
+      "backgroundColor": "#0a0a0c",
+      "description": "EA APEX — mobile hosting & trading terminal for MT4 & MT5.",
       "scope": "/",
       "lang": "en",
       "categories": ["finance", "business", "productivity"],

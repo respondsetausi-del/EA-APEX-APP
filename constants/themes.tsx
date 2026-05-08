@@ -6,6 +6,7 @@ export interface ThemePreset {
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
+  { id: 'apex', name: 'APEX', glowColor: '#00FBFF', videoFile: null },
   { id: 'cyberpunk', name: 'Cyberpunk', glowColor: '#00BFFF', videoFile: '/videos/video1.mp4' },
   { id: 'blood_moon', name: 'Blood Moon', glowColor: '#FF3366', videoFile: '/videos/video4.mp4' },
   { id: 'matrix', name: 'Matrix', glowColor: '#00FF88', videoFile: '/videos/video2.mp4' },

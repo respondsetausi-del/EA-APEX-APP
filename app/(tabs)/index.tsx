@@ -652,7 +652,7 @@ export default function HomeScreen() {
                 resizeMode="contain"
               />
             </View>
-            <Text style={[styles.splashTitle, { color: glowColor, textShadowColor: glowColor + '80' }]}>EA CONVERTER</Text>
+            <Text style={[styles.splashTitle, { color: glowColor, textShadowColor: glowColor + '80' }]}>EA APEX</Text>
             <Text style={[styles.splashTagline, { color: glowColor + '66' }]}>AUTOMATED TRADING HOST</Text>
           </View>
 
@@ -1068,7 +1068,7 @@ export default function HomeScreen() {
         <View style={styles.mainEAContainer}>
           {renderHeroBg()}
           <View style={styles.heroContent}>
-            <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.8)', '#000000']} style={styles.fadeGradient} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
+            <LinearGradient colors={['rgba(10,10,12,0)', 'rgba(10,10,12,0.85)', '#0a0a0c']} style={styles.fadeGradient} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
             <View style={styles.topSection}>
               {showHeroAvatar && renderAvatar(200)}
               <View style={styles.titleBlock}>
@@ -1090,7 +1090,7 @@ export default function HomeScreen() {
         <View style={styles.mainEAContainer}>
           {renderHeroBg()}
           <View style={[styles.heroContent, { justifyContent: 'center', alignItems: 'center', paddingTop: 0 }]}>
-            <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.8)', '#000000']} style={styles.fadeGradient} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
+            <LinearGradient colors={['rgba(10,10,12,0)', 'rgba(10,10,12,0.85)', '#0a0a0c']} style={styles.fadeGradient} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
             <View style={{ alignItems: 'center', gap: 12, zIndex: 2 }}>
               {renderAvatar(120)}
               <Text testID="ea-title" style={styles.botMainName} numberOfLines={3} ellipsizeMode="tail">{primaryEA.name}</Text>
@@ -1166,7 +1166,7 @@ export default function HomeScreen() {
         <View style={styles.mainEAContainer}>
           {renderHeroBg()}
           <View style={[styles.heroContent, { height: 500, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 20 }]}>
-            <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.7)', '#000000']} style={[styles.fadeGradient, { height: 250 }]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
+            <LinearGradient colors={['rgba(10,10,12,0)', 'rgba(10,10,12,0.75)', '#0a0a0c']} style={[styles.fadeGradient, { height: 250 }]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
             <View style={{ alignItems: 'center', gap: 14, zIndex: 2 }}>
               {renderAvatar(140)}
               <Text testID="ea-title" style={styles.botMainName} numberOfLines={3} ellipsizeMode="tail">{primaryEA.name}</Text>
@@ -1199,7 +1199,7 @@ export default function HomeScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '800' }}>{primaryEA.name}</Text>
-                <Text style={{ color: glowColor + '80', fontSize: 9, fontWeight: '600', letterSpacing: 1.5 }}>{isBotActive ? 'ACTIVE' : 'IDLE'} {'\u2022'} EA CONVERTER</Text>
+                <Text style={{ color: glowColor + '80', fontSize: 9, fontWeight: '600', letterSpacing: 1.5 }}>{isBotActive ? 'ACTIVE' : 'IDLE'} {'\u2022'} EA APEX</Text>
               </View>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isBotActive ? glowColor : glowColor + '66' }} />
             </View>
@@ -1243,14 +1243,14 @@ export default function HomeScreen() {
           ]}
         >
           <Text style={[styles.minimalBrandText, { color: glowColor, textShadowColor: glowColor + '80' }]}>
-            POWERED BY EA MOBILE CONNECT
+            POWERED BY EA APEX
           </Text>
           <View style={[styles.minimalBrandLine, { backgroundColor: glowColor + '40' }]} />
         </View>
 
         {/* Fade from the brand line down into the trading panel. */}
         <LinearGradient
-          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.7)', '#000000']}
+          colors={['rgba(10,10,12,0)', 'rgba(10,10,12,0.75)', '#0a0a0c']}
           style={styles.minimalFadeBottom}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}

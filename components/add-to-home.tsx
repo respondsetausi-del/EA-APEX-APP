@@ -87,7 +87,7 @@ export function AddToHomePrompt() {
         {/* Notch */}
         <View style={styles.notch} />
 
-        <Text style={styles.title}>Install EA Converter</Text>
+        <Text style={styles.title}>Install EA APEX</Text>
         <Text style={styles.subtitle}>
           Add this app to your home screen for the best experience — full screen, instant launch, no browser bar.
         </Text>
@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#121216',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   stepsContainer: {
-    backgroundColor: '#111',
+    backgroundColor: '#1a1a20',
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#DC2626',
+    backgroundColor: '#00FBFF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
   },
   shareIcon: {
     fontSize: 17,
-    color: '#4A9EFF',
+    color: '#00FBFF',
   },
   bold: {
     fontWeight: '700',
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
   },
   arrowDown: {
     fontSize: 28,
-    color: '#4A9EFF',
+    color: '#00FBFF',
   },
   dismissBtn: {
     alignSelf: 'center',

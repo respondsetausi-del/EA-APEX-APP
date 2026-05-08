@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
     padding: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#DC2626',
+    borderBottomColor: '#00FBFF',
   },
   errorText: {
     color: '#FF4444',
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   fallbackButton: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#00FBFF',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 4,
