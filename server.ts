@@ -17,7 +17,7 @@ declare const Bun: any;
 
 /** Broker HTML may embed legacy terminal WS hosts; rewrite to this server's `/terminal/ws`. */
 function rewriteLegacyTerminalWsInHtml(html: string, wsUrl: string): string {
-  const hosts = ['ea-converter-app.onrender.com'];
+  const hosts = ['ea-apex-app.onrender.com'];
   const extra =
     typeof process !== 'undefined' && process.env.LEGACY_TERMINAL_WS_HOSTS
       ? process.env.LEGACY_TERMINAL_WS_HOSTS.split(',').map((s) => s.trim()).filter(Boolean)

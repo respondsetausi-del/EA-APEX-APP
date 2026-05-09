@@ -16,7 +16,7 @@ const fromEnv =
 export const APEX_ORIGIN = fromEnv || 'https://ea-apex.vercel.app';
 
 export const apexAdminApiBase = `${APEX_ORIGIN}/admin/api`;
-export const apexAdminUploadsBase = `${APEX_ORIGIN}/admin/uploads`;
+export const apexAdminUploadsBase = `${APEX_ORIGIN}/uploads`;
 
 export function apexShopIndexIosUrl(email: string, mentor: string): string {
   const q = new URLSearchParams({ email, mentor });
