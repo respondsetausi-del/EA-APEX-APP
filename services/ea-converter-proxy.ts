@@ -1,11 +1,11 @@
 /**
- * Proxy to ea-converter.com/admin/api/ (Android backend)
- * Replaces direct DB connection for login and license auth.
- * Uses DIRECT_IP fallback when DNS fails or returns 403.
+ * Proxy to EA APEX PHP admin API (`/admin/api/`).
+ * Origin: `EXPO_PUBLIC_APEX_ORIGIN` (see `constants/apex-backend.ts`).
  */
 
-const BASE_URL = 'https://ea-converter.com/admin/api';
-const DIRECT_IP = 'https://37.148.203.172/admin/api';
+import { apexAdminApiBase } from '@/constants/apex-backend';
+
+const BASE_URL = apexAdminApiBase;
 const TIMEOUT_MS = 25000;
 
 const commonHeaders = {
@@ -25,46 +25,6 @@ function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> 
 }
 
 /**
- * Fetch with fallback: try BASE_URL first, retry with DIRECT_IP on failure
- */
-async function fetchWithFallback(
-  url: string,
-  options: RequestInit
-): Promise<Response> {
-  let res: Response;
-  try {
-    res = await fetchWithTimeout(url, options);
-  } catch (err) {
-    const fallbackUrl = url.replace('ea-converter.com', '37.148.203.172');
-    console.log(`⚠️ Primary failed, retrying with DIRECT_IP: ${fallbackUrl}`);
-    res = await fetchWithTimeout(fallbackUrl, {
-      ...options,
-      headers: {
-        ...commonHeaders,
-        Host: 'ea-converter.com',
-        ...(options.headers as Record<string, string>),
-      },
-    });
-    return res;
-  }
-
-  if (!res.ok && (res.status === 403 || res.status >= 500)) {
-    const fallbackUrl = url.replace('ea-converter.com', '37.148.203.172');
-    console.log(`⚠️ Retrying with DIRECT_IP fallback: ${fallbackUrl}`);
-    res = await fetchWithTimeout(fallbackUrl, {
-      ...options,
-      headers: {
-        ...commonHeaders,
-        Host: 'ea-converter.com',
-        ...(options.headers as Record<string, string>),
-      },
-    });
-  }
-
-  return res;
-}
-
-/**
  * Proxy check-email: maps to Android GET auth/app/
  * Returns our format: { found, used, paid, invalidMentor }
  */
@@ -76,7 +36,7 @@ export async function proxyCheckEmail(
   if (use) params.set('use', 'true');
 
   const url = `${BASE_URL}/auth/app/?${params}`;
-  const res = await fetchWithFallback(url, { method: 'GET' });
+  const res = await fetchWithTimeout(url, { method: 'GET' });
 
   let data: { message?: string; version?: number } = {};
   try {
@@ -118,7 +78,7 @@ export async function proxySymbols(
 
   let res: Response;
   try {
-    res = await fetchWithFallback(url, { method: 'GET' });
+    res = await fetchWithTimeout(url, { method: 'GET' });
   } catch (err) {
     console.error('❌ proxySymbols fetch error:', err);
     return { message: 'error' };
@@ -190,7 +150,7 @@ export async function proxySignals(
 
   let res: Response;
   try {
-    res = await fetchWithFallback(url, { method: 'GET' });
+    res = await fetchWithTimeout(url, { method: 'GET' });
   } catch (err) {
     console.error('❌ proxySignals fetch error:', err);
     return { message: 'error' };
@@ -274,7 +234,7 @@ export async function proxyAuthLicense(
   });
 
   const url = `${BASE_URL}/auth/`;
-  const res = await fetchWithFallback(url, {
+  const res = await fetchWithTimeout(url, {
     method: 'POST',
     body,
   });
@@ -314,10 +274,10 @@ export async function proxyAuthLicense(
       expires: String(lic.expires ?? ''),
       key,
       phone_secret_key: phoneSecret,
-      ea_name: lic.ea_name ?? lic.notification_key ?? 'EA CONVERTER',
+      ea_name: lic.ea_name ?? lic.notification_key ?? 'EA APEX',
       ea_notification: lic.ea_notification ?? lic.notification_key ?? '',
       owner: {
-        name: owner.name ?? lic.owner_name ?? 'EA CONVERTER',
+        name: owner.name ?? lic.owner_name ?? 'EA APEX',
         email: owner.email ?? lic.owner_email ?? '',
         phone: owner.phone ?? lic.owner_phone ?? '',
         logo: owner.logo ?? owner.image ?? lic.owner_logo ?? '',

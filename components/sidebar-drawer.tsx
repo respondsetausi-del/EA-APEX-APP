@@ -11,10 +11,10 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { X, Home, TrendingUp, Settings, Info, Film, Trash2, Mic, ChevronDown, ChevronUp, Palette, Sliders, Video as VideoIcon, Bot, Scan, Plus, EyeOff, Zap } from 'lucide-react-native';
+import { X, Home, TrendingUp, Settings, Info, Film, Trash2, ChevronDown, ChevronUp, Palette, Sliders, Video as VideoIcon, Plus, EyeOff, Zap } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { VOICE_HELP } from './voice-command';
 import { THEME_PRESETS } from '@/constants/themes';
+import { neonWebDrawerEdge, neonWebShadow } from '@/constants/colors';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.75, 280);
@@ -62,47 +62,12 @@ interface SidebarDrawerProps {
   onToggleHeroAvatar?: (show: boolean) => void;
   backgroundVideo?: string | null;
   onSetBackgroundVideo?: (uri: string | null) => void;
-  panelStyle?: string;
-  onPanelStyleChange?: (style: string) => void;
-  voiceStyle?: string;
-  onVoiceStyleChange?: (style: string) => void;
-  layoutStyle?: string;
-  onLayoutStyleChange?: (style: string) => void;
-  scannerStyle?: string;
-  onScannerStyleChange?: (style: string) => void;
   heroHidden?: boolean;
   onToggleHeroHidden?: (hidden: boolean) => void;
-  onOpenScanner?: () => void;
   onAddNewEA?: () => void;
-  chatVisible?: boolean;
-  onToggleChatVisible?: (visible: boolean) => void;
   autoTradeEnabled?: boolean;
   onToggleAutoTrade?: (enabled: boolean) => void;
 }
-
-const STYLE_OPTIONS = [
-  { key: 'A', label: 'Pill' },
-  { key: 'B', label: 'Stack' },
-  { key: 'C', label: 'Circle' },
-  { key: 'D', label: 'Grid' },
-  { key: 'E', label: 'Float' },
-];
-
-const LAYOUT_OPTIONS = [
-  { key: '1', label: 'Hero' },
-  { key: '2', label: 'Center' },
-  { key: '3', label: 'Dash' },
-  { key: '4', label: 'Cine' },
-  { key: '5', label: 'Card' },
-];
-
-const SCANNER_OPTIONS = [
-  { key: 'A', label: 'Pill' },
-  { key: 'F', label: 'Radar' },
-  { key: 'H', label: 'Terminal' },
-  { key: 'I', label: 'Power' },
-  { key: 'K', label: 'Hybrid' },
-];
 
 export function SidebarDrawer({
   visible,
@@ -115,26 +80,14 @@ export function SidebarDrawer({
   onToggleHeroAvatar,
   backgroundVideo = null,
   onSetBackgroundVideo,
-  panelStyle = 'A',
-  onPanelStyleChange,
-  voiceStyle = 'A',
-  onVoiceStyleChange,
-  layoutStyle = '1',
-  onLayoutStyleChange,
-  scannerStyle = 'K',
-  onScannerStyleChange,
   heroHidden = false,
   onToggleHeroHidden,
-  onOpenScanner,
   onAddNewEA,
-  chatVisible = true,
-  onToggleChatVisible,
   autoTradeEnabled = false,
   onToggleAutoTrade,
 }: SidebarDrawerProps) {
   const slideAnim = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
-  const [voiceHelpOpen, setVoiceHelpOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(true);
   const [mediaOpen, setMediaOpen] = useState(false);
@@ -221,10 +174,11 @@ export function SidebarDrawer({
           {
             width: DRAWER_WIDTH,
             transform: [{ translateX: slideAnim }],
-            borderLeftColor: glowColor + '50',
+            borderLeftColor: glowColor + '28',
             ...Platform.select({
               web: {
-                boxShadow: `-4px 0 20px 2px ${glowColor}33`,
+                borderLeftWidth: 0,
+                boxShadow: neonWebDrawerEdge(glowColor),
               } as any,
             }),
           },
@@ -247,7 +201,12 @@ export function SidebarDrawer({
                 key={item.key}
                 style={[
                   styles.navItem,
-                  isActive && { backgroundColor: glowColor + '15' },
+                  isActive && {
+                    backgroundColor: 'rgba(0,0,0,0.88)',
+                    borderColor: glowColor + '3D',
+                    borderWidth: Platform.OS === 'web' ? 0 : 1,
+                    ...(Platform.OS === 'web' ? { boxShadow: neonWebShadow(glowColor, 'soft') } as any : {}),
+                  },
                 ]}
                 activeOpacity={0.7}
                 onPress={() => {
@@ -274,18 +233,7 @@ export function SidebarDrawer({
           })}
         </View>
 
-        {/* Quick actions — lets the user reach these without cluttering
-            the home screen, especially when the hero is hidden. */}
-        {onOpenScanner && (
-          <TouchableOpacity
-            style={styles.navItem}
-            activeOpacity={0.7}
-            onPress={() => { onOpenScanner(); onClose(); }}
-          >
-            <Scan color={glowColor} size={20} />
-            <Text style={[styles.navLabel, { color: glowColor, textShadowColor: glowColor + '80', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 }]}>Chart Scanner</Text>
-          </TouchableOpacity>
-        )}
+        {/* Quick actions */}
         {onAddNewEA && (
           <TouchableOpacity
             style={styles.navItem}
@@ -321,7 +269,7 @@ export function SidebarDrawer({
                     key={theme.id}
                     activeOpacity={0.7}
                     onPress={() => handleApplyTheme(theme.id)}
-                    style={[styles.themeTile, { borderColor: isActive ? theme.glowColor : 'rgba(255,255,255,0.15)' }, isActive && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${theme.glowColor}60` } as any : {}]}
+                    style={[styles.themeTile, { borderColor: isActive ? theme.glowColor + '55' : 'rgba(255,255,255,0.12)' }, isActive && Platform.OS === 'web' ? { boxShadow: neonWebShadow(theme.glowColor, 'soft'), borderWidth: 0 } as any : {}]}
                   >
                     <View style={[styles.themeDot, { backgroundColor: theme.glowColor }]} />
                     <Text style={[styles.themeTileLabel, isActive && { color: theme.glowColor }]}>{theme.name}</Text>
@@ -351,7 +299,7 @@ export function SidebarDrawer({
                     key={color}
                     activeOpacity={0.7}
                     onPress={() => onColorChange(color)}
-                    style={[styles.colorCircleOuter, isSelected && { borderColor: color, ...Platform.select({ web: { boxShadow: `0 0 8px 2px ${color}60` } as any }) }]}
+                    style={[styles.colorCircleOuter, isSelected && { borderColor: color + '66', borderWidth: Platform.OS === 'web' ? 1 : 2, ...Platform.select({ web: { boxShadow: neonWebShadow(color, 'soft') } as any }) }]}
                   >
                     <View style={[styles.colorCircle, { backgroundColor: color }]} />
                   </TouchableOpacity>
@@ -374,9 +322,8 @@ export function SidebarDrawer({
               </View>
             </TouchableOpacity>
 
-            {/* Hero Image Toggle — hides the tall 9:16 hero + moves the
-                EA card, scanner, and Add EA action into this sidebar so
-                the robot background becomes the standout visual. */}
+            {/* Hero Image Toggle — hides the tall 9:16 hero so the robot
+                backdrop stands out. */}
             <TouchableOpacity
               style={styles.toggleRow}
               activeOpacity={0.7}
@@ -396,23 +343,7 @@ export function SidebarDrawer({
               </View>
             </TouchableOpacity>
 
-            {/* Trade Assistant (chat bot) toggle */}
-            <TouchableOpacity
-              style={styles.toggleRow}
-              activeOpacity={0.7}
-              onPress={() => onToggleChatVisible?.(!chatVisible)}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Bot color={chatVisible ? glowColor : 'rgba(255,255,255,0.5)'} size={14} />
-                <Text style={styles.toggleLabel}>Trade Assistant</Text>
-              </View>
-              <View style={[styles.toggleTrack, { backgroundColor: chatVisible ? glowColor : 'rgba(255,255,255,0.15)' }]}>
-                <View style={[styles.toggleThumb, { transform: [{ translateX: chatVisible ? 14 : 0 }] }]} />
-              </View>
-            </TouchableOpacity>
-
-            {/* Auto-Trade toggle — when ON, scanner + chat skip the confirm
-                step and fire trades immediately. */}
+            {/* Auto-Trade toggle */}
             <TouchableOpacity
               style={styles.toggleRow}
               activeOpacity={0.7}
@@ -424,7 +355,7 @@ export function SidebarDrawer({
                   <Text style={styles.toggleLabel}>Auto-Trade</Text>
                 </View>
                 <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, marginTop: 2 }}>
-                  Skip confirm — fire scanner & chat instantly
+                  Skip confirm on manual trades where supported
                 </Text>
               </View>
               <View style={[styles.toggleTrack, { backgroundColor: autoTradeEnabled ? glowColor : 'rgba(255,255,255,0.15)' }]}>
@@ -432,61 +363,6 @@ export function SidebarDrawer({
               </View>
             </TouchableOpacity>
 
-            {/* Panel Style */}
-            <Text style={[styles.sectionLabel, { marginTop: 10 }]}>PANEL STYLE</Text>
-            <View style={styles.styleTileRow}>
-              {STYLE_OPTIONS.map((opt) => {
-                const active = panelStyle === opt.key;
-                return (
-                  <TouchableOpacity key={opt.key} activeOpacity={0.7} onPress={() => onPanelStyleChange?.(opt.key)}
-                    style={[styles.styleTile, { borderColor: active ? glowColor : 'rgba(255,255,255,0.15)' }, active && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
-                    <Text style={[styles.styleTileLabel, active && { color: glowColor }]}>{opt.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Voice Style */}
-            <Text style={[styles.sectionLabel, { marginTop: 10 }]}>VOICE STYLE</Text>
-            <View style={styles.styleTileRow}>
-              {STYLE_OPTIONS.map((opt) => {
-                const active = voiceStyle === opt.key;
-                return (
-                  <TouchableOpacity key={opt.key} activeOpacity={0.7} onPress={() => onVoiceStyleChange?.(opt.key)}
-                    style={[styles.styleTile, { borderColor: active ? glowColor : 'rgba(255,255,255,0.15)' }, active && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
-                    <Text style={[styles.styleTileLabel, active && { color: glowColor }]}>{opt.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Layout Style */}
-            <Text style={[styles.sectionLabel, { marginTop: 10 }]}>LAYOUT STYLE</Text>
-            <View style={styles.styleTileRow}>
-              {LAYOUT_OPTIONS.map((opt) => {
-                const active = layoutStyle === opt.key;
-                return (
-                  <TouchableOpacity key={opt.key} activeOpacity={0.7} onPress={() => onLayoutStyleChange?.(opt.key)}
-                    style={[styles.styleTile, { borderColor: active ? glowColor : 'rgba(255,255,255,0.15)' }, active && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
-                    <Text style={[styles.styleTileLabel, active && { color: glowColor }]}>{opt.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Scanner Style */}
-            <Text style={[styles.sectionLabel, { marginTop: 10 }]}>SCANNER STYLE</Text>
-            <View style={styles.styleTileRow}>
-              {SCANNER_OPTIONS.map((opt) => {
-                const active = scannerStyle === opt.key;
-                return (
-                  <TouchableOpacity key={opt.key} activeOpacity={0.7} onPress={() => onScannerStyleChange?.(opt.key)}
-                    style={[styles.styleTile, { borderColor: active ? glowColor : 'rgba(255,255,255,0.15)' }, active && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
-                    <Text style={[styles.styleTileLabel, active && { color: glowColor }]}>{opt.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
           </View>
         )}
 
@@ -505,7 +381,7 @@ export function SidebarDrawer({
                 const isActive = backgroundVideo === preset.file;
                 return (
                   <TouchableOpacity key={preset.id} activeOpacity={0.7} onPress={() => onSetBackgroundVideo?.(isActive ? null : preset.file)}
-                    style={[styles.presetVideoTile, { borderColor: isActive ? glowColor : 'rgba(255,255,255,0.15)' }, isActive && Platform.OS === 'web' ? { boxShadow: `0 0 6px 1px ${glowColor}60` } as any : {}]}>
+                    style={[styles.presetVideoTile, { borderColor: isActive ? glowColor + '55' : 'rgba(255,255,255,0.12)' }, isActive && Platform.OS === 'web' ? { borderWidth: 0, boxShadow: neonWebShadow(glowColor, 'soft') } as any : {}]}>
                     <Film color={isActive ? glowColor : 'rgba(255,255,255,0.4)'} size={16} />
                     <Text style={[styles.presetVideoLabel, isActive && { color: glowColor }]}>{preset.label}</Text>
                   </TouchableOpacity>
@@ -529,32 +405,6 @@ export function SidebarDrawer({
           </View>
         )}
 
-        {/* ═══ VOICE SECTION ═══ */}
-        <TouchableOpacity
-          style={[styles.sectionHeader2, { borderTopColor: glowColor + '30' }]}
-          activeOpacity={0.7}
-          onPress={() => setVoiceHelpOpen(!voiceHelpOpen)}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Mic color={glowColor} size={16} />
-            <Text style={[styles.sectionHeaderText, { color: glowColor }]}>VOICE COMMANDS</Text>
-          </View>
-          {voiceHelpOpen ? <ChevronUp color={glowColor + '60'} size={16} /> : <ChevronDown color={glowColor + '60'} size={16} />}
-        </TouchableOpacity>
-
-        {voiceHelpOpen && (
-          <View style={styles.voiceHelpList}>
-            {VOICE_HELP.map((group) => (
-              <View key={group.category} style={styles.voiceHelpGroup}>
-                <Text style={[styles.voiceHelpCategory, { color: glowColor + '80' }]}>{group.category}</Text>
-                {group.commands.map((cmd, i) => (
-                  <Text key={i} style={styles.voiceHelpCmd}>{cmd}</Text>
-                ))}
-              </View>
-            ))}
-          </View>
-        )}
-
         <View style={{ height: 30 }} />
         </ScrollView>
       </Animated.View>
@@ -565,14 +415,14 @@ export function SidebarDrawer({
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.72)',
   },
   drawer: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#080D1A',
+    backgroundColor: '#000000',
     borderLeftWidth: 1,
     paddingTop: 60,
     paddingHorizontal: 20,
@@ -586,7 +436,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(0,0,0,0.94)',
   },
   navSection: {
     marginTop: 12,
@@ -601,7 +451,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   navLabel: {
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.74)',
     fontSize: 15,
     fontWeight: '600',
     letterSpacing: 0.5,
@@ -652,7 +502,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   toggleLabel: {
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.74)',
     fontSize: 15,
     fontWeight: '600',
     letterSpacing: 0.5,
@@ -686,7 +536,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 12,
     borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: 'rgba(0,0,0,0.82)',
   },
   videoButtonText: {
     fontSize: 14,
@@ -703,7 +553,7 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: 10,
     borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(0,0,0,0.86)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 8,
@@ -712,27 +562,6 @@ const styles = StyleSheet.create({
   presetVideoLabel: {
     color: 'rgba(255,255,255,0.4)',
     fontSize: 9,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  styleTileRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: 4,
-  },
-  styleTile: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  styleTileLabel: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 11,
     fontWeight: '600',
     letterSpacing: 0.5,
   },
@@ -757,7 +586,7 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: 10,
     borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(0,0,0,0.86)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 8,
@@ -773,34 +602,6 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '600',
     letterSpacing: 0.5,
-  },
-  voiceHelpHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  voiceHelpList: {
-    paddingHorizontal: 4,
-    paddingTop: 8,
-    gap: 12,
-  },
-  voiceHelpGroup: {
-    gap: 4,
-  },
-  voiceHelpCategory: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    marginBottom: 2,
-  },
-  voiceHelpCmd: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 12,
-    fontWeight: '500',
-    paddingLeft: 8,
-    lineHeight: 18,
   },
 });
 

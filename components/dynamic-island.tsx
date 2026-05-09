@@ -12,13 +12,14 @@ import {
   PanResponder,
   Image,
 } from 'react-native';
-import { Play, Square, TrendingUp, Trash2, Activity } from 'lucide-react-native';
+import { SquareActivity, SquarePlay, SquareX, Square, Activity } from 'lucide-react-native';
 
-import { RobotLogo } from './robot-logo';
 import { useApp } from '@/providers/app-provider';
 import { router } from 'expo-router';
 import { SignalLog } from '@/services/signals-monitor';
 import type { EA } from '@/providers/app-provider';
+import { apexAdminUploadsBase } from '@/constants/apex-backend';
+import { APEX_LOGO } from '@/constants/brand-assets';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -52,8 +53,7 @@ export function DynamicIsland({ visible, newSignal, onSignalDismiss }: DynamicIs
     if (/^https?:\/\//i.test(raw)) return raw;
     // Otherwise, treat as filename and prefix uploads base URL
     const filename = raw.replace(/^\/+/, '');
-    const base = 'https://ea-converter.com/admin/uploads';
-    return `${base}/${filename}`;
+    return `${apexAdminUploadsBase}/${filename}`;
   }, []);
 
   const primaryEAImage = useMemo(() => getEAImageUrl(primaryEA), [getEAImageUrl, primaryEA]);
@@ -282,7 +282,7 @@ export function DynamicIsland({ visible, newSignal, onSignalDismiss }: DynamicIs
                   resizeMode="cover"
                 />
               ) : (
-                <RobotLogo size={14} />
+                <Image source={APEX_LOGO} style={styles.overlayLogo} resizeMode="contain" />
               )}
             </View>
             <View style={styles.overlayIndicator} />
@@ -400,7 +400,7 @@ export function DynamicIsland({ visible, newSignal, onSignalDismiss }: DynamicIs
                   resizeMode="cover"
                 />
               ) : (
-                <RobotLogo size={24} />
+                <Image source={APEX_LOGO} style={styles.collapsedLogo} resizeMode="contain" />
               )}
             </View>
           )}
@@ -425,7 +425,7 @@ export function DynamicIsland({ visible, newSignal, onSignalDismiss }: DynamicIs
                     resizeMode="cover"
                   />
                 ) : (
-                  <RobotLogo size={32} />
+                  <Image source={APEX_LOGO} style={styles.expandedLogo} resizeMode="contain" />
                 )}
               </View>
               <View style={styles.expandedInfo}>
@@ -433,7 +433,7 @@ export function DynamicIsland({ visible, newSignal, onSignalDismiss }: DynamicIs
                   {primaryEA?.name}
                 </Text>
                 <Text style={styles.expandedSubtitle}>
-                  EA CONVERTER
+                  EA APEX
                 </Text>
               </View>
             </View>
@@ -452,9 +452,9 @@ export function DynamicIsland({ visible, newSignal, onSignalDismiss }: DynamicIs
                 }}
               >
                 {isBotActive ? (
-                  <Square color="#00FBFF" size={16} fill="#00FBFF" />
+                  <Square color="#00FBFF" size={16} strokeWidth={2} fill="#00FBFF" />
                 ) : (
-                  <Play color="#FFFFFF" size={16} fill="#FFFFFF" />
+                  <SquarePlay color="#FFFFFF" size={16} strokeWidth={2} />
                 )}
                 <Text style={[styles.controlButtonText, { color: isBotActive ? "#00FBFF" : "#FFFFFF" }]}>
                   {isBotActive ? 'STOP' : 'START'}
@@ -462,12 +462,12 @@ export function DynamicIsland({ visible, newSignal, onSignalDismiss }: DynamicIs
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.controlButton} onPress={handleQuotes}>
-                <TrendingUp color="#FFFFFF" size={16} />
+                <SquareActivity color="#FFFFFF" size={16} strokeWidth={2} />
                 <Text style={styles.controlButtonText}>QUOTES</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.controlButton} onPress={handleRemoveBot}>
-                <Trash2 color="#FFFFFF" size={16} />
+                <SquareX color="#FFFFFF" size={16} strokeWidth={2} />
                 <Text style={styles.controlButtonText}>REMOVE</Text>
               </TouchableOpacity>
             </View>

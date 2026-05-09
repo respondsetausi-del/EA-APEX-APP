@@ -1,4 +1,4 @@
-// Symbols proxy: forwards to ea-converter.com/admin/api/symbols/
+// Symbols proxy: forwards to EA APEX `admin/api/symbols/`
 // (the same endpoint Android's RoboTraderAPI.getSymbols hits).
 //
 // This used to query MySQL directly via getPool() with a hand-written

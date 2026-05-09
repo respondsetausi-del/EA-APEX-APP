@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
+import { neonWebShadow } from '@/constants/colors';
 
 interface NotificationToastProps {
   message: string;
@@ -53,8 +54,8 @@ export function NotificationToast({
   return (
     <Animated.View style={[
       styles.toast,
-      { borderColor: color + '60', transform: [{ translateY: slideAnim }], opacity: opacityAnim },
-      Platform.OS === 'web' ? { boxShadow: `0 0 8px 2px ${color}40, 0 4px 12px rgba(0,0,0,0.5)` } as any : { shadowColor: color },
+      { borderColor: color + '45', transform: [{ translateY: slideAnim }], opacity: opacityAnim },
+      Platform.OS === 'web' ? { borderWidth: 0, boxShadow: `${neonWebShadow(color, 'medium')}, 0 6px 18px rgba(0,0,0,0.55)` } as any : { shadowColor: color },
     ]}>
       <View style={[styles.indicator, { backgroundColor: color }]} />
       <Text style={[styles.toastText, { color: '#FFFFFF' }]} numberOfLines={2}>{message}</Text>
@@ -68,7 +69,7 @@ const styles = StyleSheet.create({
     top: Platform.OS === 'ios' ? 54 : 16,
     left: 16,
     right: 16,
-    backgroundColor: '#080D1A',
+    backgroundColor: '#000000',
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',

@@ -1,6 +1,6 @@
 // Database signals polling — hits the SAME-ORIGIN server endpoint
 // /api/get-new-signals?phone_secret=X on render.com, which proxies
-// server-side to the PHP endpoint on ea-converter.com.
+// server-side to EA APEX PHP (see EXPO_PUBLIC_APEX_ORIGIN).
 //
 // Client cannot call PHP directly because of CORS + SSL cert issues on
 // the fallback IP. Server→server proxy has neither.

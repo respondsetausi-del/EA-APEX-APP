@@ -16,6 +16,7 @@
   "include": [
     "server.ts",
     "app/api/**/*.ts",
+    "constants/apex-backend.ts",
     "services/ea-converter-proxy.ts"
   ]
 }

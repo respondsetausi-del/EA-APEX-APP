@@ -1,4 +1,4 @@
-// License auth proxy: forwards to ea-converter.com/admin/api/auth/ (Android backend)
+// License auth proxy: forwards to EA APEX `admin/api/auth/`
 
 import { proxyAuthLicense } from '@/services/ea-converter-proxy';
 

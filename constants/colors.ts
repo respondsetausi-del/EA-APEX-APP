@@ -16,6 +16,31 @@ export const apex = {
   neonEdge: 'rgba(0, 251, 255, 0.16)',
 } as const;
 
+/**
+ * Web-only stacked outer glow: crisp highlight + saturated core + soft bloom.
+ * Avoids heavy inset rings so edges read as light, not thick UI borders.
+ * `colorHex` must be a 6-digit hex including `#`, e.g. `#00FBFF`.
+ */
+export type NeonTier = 'soft' | 'medium' | 'strong';
+
+export function neonWebShadow(colorHex: string, tier: NeonTier = 'medium'): string {
+  const c = colorHex;
+  switch (tier) {
+    case 'soft':
+      return `0 0 1px 0 rgba(255,255,255,0.3), 0 0 2px 0 ${c}CC, 0 0 5px 1px ${c}88, 0 0 10px 2px ${c}44`;
+    case 'strong':
+      return `0 0 1px 0 rgba(255,255,255,0.7), 0 0 3px 0 ${c}FF, 0 0 8px 2px ${c}EE, 0 0 16px 3px ${c}88, 0 0 24px 5px ${c}44`;
+    default:
+      return `0 0 1px 0 rgba(255,255,255,0.5), 0 0 2px 0 ${c}FF, 0 0 6px 1px ${c}BB, 0 0 12px 2px ${c}66, 0 0 20px 4px ${c}2B`;
+  }
+}
+
+/** Left edge of the drawer: thin light line + cyan spill onto the canvas. */
+export function neonWebDrawerEdge(colorHex: string): string {
+  const c = colorHex;
+  return `inset 1px 0 0 rgba(255,255,255,0.06), inset 1px 0 0 ${c}2B, -2px 0 10px 0 ${c}5E, -5px 0 22px 3px ${c}42, -10px 0 38px 9px ${c}1F`;
+}
+
 export default {
   primary: apex.accent,
   secondary: apex.surface,

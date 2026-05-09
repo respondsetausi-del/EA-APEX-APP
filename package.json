@@ -11,6 +11,7 @@
     "export:web": "bunx expo export --platform web",
     "build:web": "bunx expo export --platform web && node scripts/post-build.js",
     "serve:dist": "bun server.ts",
+    "smoke:login": "node scripts/login-api-smoke.mjs",
     "start:render": "bun run build:web && bun run serve:dist"
   },
   "dependencies": {

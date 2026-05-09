@@ -1,16 +1,15 @@
-// Proxy to PHP device-binding endpoint on ea-converter.com
-// PHP runs on the same server as the DB — no remote MySQL needed
+// Proxy to EA APEX PHP device-binding (`payment/check_email_device.php`).
 
-const PHP_ENDPOINT = 'https://ea-converter.com/payment/check_email_device.php';
-const DIRECT_IP_ENDPOINT = 'https://37.148.203.172/payment/check_email_device.php';
+import { apexCheckEmailDeviceUrl } from '@/constants/apex-backend';
+
+const PHP_ENDPOINT = apexCheckEmailDeviceUrl();
 const TIMEOUT_MS = 20000;
 
-async function fetchWithTimeout(url: string, options: RequestInit, host?: string): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(host ? { Host: host } : {}),
     };
     try {
         return await fetch(url, { ...options, headers, signal: controller.signal });
@@ -21,20 +20,9 @@ async function fetchWithTimeout(url: string, options: RequestInit, host?: string
 
 async function proxyToPhp(body: object): Promise<Response> {
     const jsonBody = JSON.stringify(body);
-
-    // Try domain first, fallback to direct IP
-    try {
-        const res = await fetchWithTimeout(PHP_ENDPOINT, { method: 'POST', body: jsonBody });
-        if (res.ok) return res;
-    } catch {}
-
-    // Fallback
-    try {
-        const res = await fetchWithTimeout(DIRECT_IP_ENDPOINT, { method: 'POST', body: jsonBody }, 'ea-converter.com');
-        if (res.ok) return res;
-    } catch {}
-
-    throw new Error('Both PHP endpoints unreachable');
+    const res = await fetchWithTimeout(PHP_ENDPOINT, { method: 'POST', body: jsonBody });
+    if (res.ok) return res;
+    throw new Error('PHP endpoint unreachable');
 }
 
 export async function POST(request: Request): Promise<Response> {

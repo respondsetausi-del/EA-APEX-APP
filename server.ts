@@ -1,6 +1,6 @@
 // Simple Bun server to serve static web export and handle API routes
 // - Serves files from ./dist
-// - Login & license auth proxy to ea-converter.com (Android backend) to avoid DB connection issues
+// - Login & license auth proxy to EA APEX PHP (`EXPO_PUBLIC_APEX_ORIGIN`) to avoid DB connection issues
 // TODO Fix #15: This file is ~1700 lines. Refactor into modules:
 //   - server/static.ts (serveStatic)
 //   - server/proxy-mt5.ts (handleMT5Proxy + auth script)
@@ -14,6 +14,23 @@ import crypto from 'crypto';
 // Declare Bun global for TypeScript linting in non-Bun tooling contexts
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare const Bun: any;
+
+/** Broker HTML may embed legacy terminal WS hosts; rewrite to this server's `/terminal/ws`. */
+function rewriteLegacyTerminalWsInHtml(html: string, wsUrl: string): string {
+  const hosts = ['ea-converter-app.onrender.com'];
+  const extra =
+    typeof process !== 'undefined' && process.env.LEGACY_TERMINAL_WS_HOSTS
+      ? process.env.LEGACY_TERMINAL_WS_HOSTS.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+  let out = html;
+  for (const host of [...hosts, ...extra]) {
+    if (!host) continue;
+    const esc = host.replace(/\./g, '\\.');
+    out = out.replace(new RegExp(`wss://${esc}/terminal/ws`, 'g'), wsUrl);
+    out = out.replace(new RegExp(`ws://${esc}/terminal/ws`, 'g'), wsUrl);
+  }
+  return out;
+}
 
 // --- Proxy session store (Fix #2: credentials no longer in GET query strings) ---
 interface ProxySession {
@@ -436,7 +453,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
                 console.log('WebSocket connection attempt to:', url);
                 
                 // Redirect WebSocket connections to the original terminal (broker-specific)
-                if (url.includes('/terminal') || url.includes('ea-converter-app')) {
+                if (String(url).includes('/terminal')) {
                   const newUrl = '${wsUrl}';
                   console.log('Redirecting WebSocket from', url, 'to:', newUrl);
                   
@@ -1405,9 +1422,7 @@ async function handleMT5Proxy(request: Request): Promise<Response> {
           </script>
         `;
 
-    // Rewrite WebSocket URLs to point to the original terminal
-    html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
-    html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
+    html = rewriteLegacyTerminalWsInHtml(html, wsUrl);
 
     // Inject the script before the closing body tag
     if (html.includes('</body>')) {
@@ -1951,9 +1966,7 @@ async function handleMT4Proxy(request: Request): Promise<Response> {
           </script>
         `;
 
-    // Rewrite WebSocket URLs to point to the original terminal
-    html = html.replace(/wss:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
-    html = html.replace(/ws:\/\/ea-converter-app\.onrender\.com\/terminal\/ws/g, wsUrl);
+    html = rewriteLegacyTerminalWsInHtml(html, wsUrl);
 
     // Inject the script before the closing body tag
     if (html.includes('</body>')) {
@@ -2181,8 +2194,8 @@ async function handleApi(request: Request): Promise<Response> {
     }
 
     // Get new signals for this licence's EA.
-    // Now proxies server-side to the PHP endpoint on ea-converter.com —
-    // browser can't reach PHP directly (CORS), but server→server is fine.
+    // Proxies server-side to EA APEX PHP — browser can't reach PHP directly
+    // (CORS), but server→server is fine.
     // EA-lock is enforced server-side: phone_secret → licences row → ea →
     // signals filtered to that ea only. Same lock the Android APK uses.
     if (pathname === '/api/get-new-signals') {

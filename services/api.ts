@@ -316,20 +316,9 @@ class ApiService {
     return { message: 'accept', version: 1 } as unknown as App;
   }
 
-  // Hit the same PHP endpoint the Android app uses
-  // (see ea-converter/app/src/main/java/.../utils/Constants.kt → BASE_URL +
-  //  network/api/RoboTraderAPI.kt → @GET("symbols/")).
-  //
-  // We used to route this through the RN-side proxy at /api/symbols, but that
-  // proxy's SQL keyed on licences.phone_secret_code which doesn't match the
-  // column the PHP admin writes, so it silently returned zero symbols and the
-  // quotes screen fell into its mock-data fallback. Calling the PHP endpoint
-  // directly keeps iOS and Android in lock-step.
-  // Calls the RN-side proxy at /api/symbols, which forwards to the PHP
-  // endpoint at ea-converter.com/admin/api/symbols/ (the same endpoint
-  // Android's RoboTraderAPI.getSymbols hits). Going through the proxy is
-  // required for the web build — direct calls to the PHP host are blocked
-  // by CORS from the browser. See services/ea-converter-proxy.ts.
+  // Same PHP symbols endpoint as the Android app; web goes through
+  // `/api/symbols` (CORS). See `services/ea-converter-proxy.ts` → EA APEX
+  // `admin/api/symbols/`.
   async getSymbols(phoneSecret: string): Promise<SymbolsResponse> {
     if (!phoneSecret) return { message: 'error' };
     const url = `${BASE_URL}/api/symbols?phone_secret=${encodeURIComponent(phoneSecret)}`;

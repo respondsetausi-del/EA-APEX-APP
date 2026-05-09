@@ -4,11 +4,12 @@ import React, { useState, useEffect } from "react";
 import { View, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { router } from "expo-router";
 import { useApp } from "@/providers/app-provider";
+import { neonWebShadow } from "@/constants/colors";
 import { SidebarDrawer } from "@/components/sidebar-drawer";
 import { NotificationToast } from "@/components/notification-toast";
 
 export default function TabLayout() {
-  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, panelStyle, setPanelStyle, voiceStyle, setVoiceStyle, layoutStyle, setLayoutStyle, scannerStyle, setScannerStyle, heroHidden, setHeroHidden, requestOpenScanner, chatVisible, setChatVisible, autoTradeEnabled, setAutoTradeEnabled, warmTerminalSession, mt4Account, mt5Account, mt4Symbols, mt5Symbols, isHydrated, newSignal, dismissNewSignal } = useApp();
+  const { glowColor, setGlowColor, showHeroAvatar, setShowHeroAvatar, backgroundVideo, setBackgroundVideo, heroHidden, setHeroHidden, autoTradeEnabled, setAutoTradeEnabled, warmTerminalSession, mt4Account, mt5Account, mt4Symbols, mt5Symbols, isHydrated, newSignal, dismissNewSignal } = useApp();
 
   // Pre-warm the broker terminal on app open. Now gated on BOTH having
   // credentials AND the user having opted into auto-trading AND at least
@@ -73,7 +74,11 @@ export default function TabLayout() {
 
       {/* Hamburger — floats over every screen */}
       <TouchableOpacity
-        style={[styles.hamburger, { borderColor: glowColor + '40' }]}
+        style={[
+          styles.hamburger,
+          Platform.OS === "web" && { borderWidth: 0, boxShadow: `${neonWebShadow(glowColor, "soft")}, 0 4px 14px rgba(0,0,0,0.65)` } as any,
+          { borderColor: glowColor + '2E' },
+        ]}
         onPress={() => setSidebarVisible(true)}
         activeOpacity={0.7}
       >
@@ -95,24 +100,9 @@ export default function TabLayout() {
         onToggleHeroAvatar={setShowHeroAvatar}
         backgroundVideo={backgroundVideo}
         onSetBackgroundVideo={setBackgroundVideo}
-        panelStyle={panelStyle}
-        onPanelStyleChange={setPanelStyle}
-        voiceStyle={voiceStyle}
-        onVoiceStyleChange={setVoiceStyle}
-        layoutStyle={layoutStyle}
-        onLayoutStyleChange={setLayoutStyle}
-        scannerStyle={scannerStyle}
-        onScannerStyleChange={setScannerStyle}
         heroHidden={heroHidden}
         onToggleHeroHidden={setHeroHidden}
-        onOpenScanner={() => {
-          // Bounce through home so the scanner modal (owned by home) opens.
-          if (currentRoute !== 'home') router.push('/(tabs)');
-          requestOpenScanner();
-        }}
         onAddNewEA={() => router.push('/license')}
-        chatVisible={chatVisible}
-        onToggleChatVisible={setChatVisible}
         autoTradeEnabled={autoTradeEnabled}
         onToggleAutoTrade={setAutoTradeEnabled}
       />
@@ -132,7 +122,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.88)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,

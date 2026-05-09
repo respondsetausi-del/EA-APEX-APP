@@ -1,19 +1,19 @@
-// Proxy to PHP affiliate pending-ref endpoint on ea-converter.com.
+// Proxy to EA APEX PHP affiliate pending-ref (`affiliate/api/track.php`).
 // Mirrors the existing /r/CODE landing page POST so the mobile app can
 // attribute an (email, ref_code) pair before redirecting to PayFast.
 // On payment success, payment/affiliate_track.php joins eac_pending_refs
 // on email and credits the affiliate exactly the same as a web visitor.
 
-const PHP_ENDPOINT = 'https://ea-converter.com/affiliate/api/track.php';
-const DIRECT_IP_ENDPOINT = 'https://37.148.203.172/affiliate/api/track.php';
+import { apexAffiliateTrackUrl } from '@/constants/apex-backend';
+
+const PHP_ENDPOINT = apexAffiliateTrackUrl();
 const TIMEOUT_MS = 15000;
 
-async function fetchWithTimeout(url: string, options: RequestInit, host?: string): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(host ? { Host: host } : {}),
     };
     try {
         return await fetch(url, { ...options, headers, signal: controller.signal });
@@ -24,18 +24,9 @@ async function fetchWithTimeout(url: string, options: RequestInit, host?: string
 
 async function proxyToPhp(body: object): Promise<Response> {
     const jsonBody = JSON.stringify(body);
-
-    try {
-        const res = await fetchWithTimeout(PHP_ENDPOINT, { method: 'POST', body: jsonBody });
-        if (res.ok) return res;
-    } catch {}
-
-    try {
-        const res = await fetchWithTimeout(DIRECT_IP_ENDPOINT, { method: 'POST', body: jsonBody }, 'ea-converter.com');
-        if (res.ok) return res;
-    } catch {}
-
-    throw new Error('Both PHP endpoints unreachable');
+    const res = await fetchWithTimeout(PHP_ENDPOINT, { method: 'POST', body: jsonBody });
+    if (res.ok) return res;
+    throw new Error('PHP endpoint unreachable');
 }
 
 export async function POST(request: Request): Promise<Response> {

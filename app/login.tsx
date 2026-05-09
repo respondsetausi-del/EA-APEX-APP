@@ -1,20 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, Alert, ActivityIndicator, Image, Linking, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, Alert, ActivityIndicator, Image, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { router } from 'expo-router';
 // Networking disabled: avoid external browser/payment flows
 import { useApp } from '@/providers/app-provider';
 import { apiService } from '@/services/api';
-import Colors from '@/constants/colors';
-
-const REF_CODE_KEY = '@eaconverter_ref_code';
-const REF_CODE_REGEX = /^EAC-[A-Z0-9]{4,8}$/;
+import Colors, { neonWebShadow } from '@/constants/colors';
+import { apexPaymentRenewUrl, apexShopIndexIosUrl } from '@/constants/apex-backend';
+import { APEX_LOGO } from '@/constants/brand-assets';
 
 export default function LoginScreen() {
   const [mentorId, setMentorId] = useState<string>('');
   const [email, setEmail] = useState<string>('');
-  const [refCode, setRefCode] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState<boolean>(false);
   // In-app modal (reliable on iOS Safari)
@@ -27,7 +24,7 @@ export default function LoginScreen() {
   // (used for device-mismatch reactivation: show the explanation first,
   // then offer payment as the recovery path).
   const [pendingPaymentUrl, setPendingPaymentUrl] = useState<string>('');
-  const { setUser, eas, isHydrated, emailAuthenticated, setEmailAuthenticated } = useApp();
+  const { setUser, eas, isHydrated, emailAuthenticated, setEmailAuthenticated, glowColor } = useApp();
 
   // If the user is already authenticated, bounce them to the right place.
   // Read from context (the provider is the single source of truth now), so
@@ -41,43 +38,6 @@ export default function LoginScreen() {
       router.replace('/license');
     }
   }, [isHydrated, emailAuthenticated, eas.length]);
-
-  // Prefill referral code from a deep link (?ref=EAC-XXXX) or, failing
-  // that, the last value the user typed. Deep-link wins so a fresh
-  // marketing URL always overrides a stale stored code.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      let urlRef = '';
-      try {
-        if (Platform.OS === 'web' && typeof window !== 'undefined') {
-          const sp = new URLSearchParams(window.location.search);
-          urlRef = (sp.get('ref') || '').trim().toUpperCase();
-        } else {
-          const initial = await Linking.getInitialURL();
-          if (initial) {
-            const qIdx = initial.indexOf('?');
-            if (qIdx !== -1) {
-              const sp = new URLSearchParams(initial.slice(qIdx + 1));
-              urlRef = (sp.get('ref') || '').trim().toUpperCase();
-            }
-          }
-        }
-      } catch {}
-
-      if (urlRef && REF_CODE_REGEX.test(urlRef)) {
-        if (!cancelled) setRefCode(urlRef);
-        try { await AsyncStorage.setItem(REF_CODE_KEY, urlRef); } catch {}
-        return;
-      }
-
-      try {
-        const stored = await AsyncStorage.getItem(REF_CODE_KEY);
-        if (!cancelled && stored && REF_CODE_REGEX.test(stored)) setRefCode(stored);
-      } catch {}
-    })();
-    return () => { cancelled = true; };
-  }, []);
 
   // Open a merchant URL from a web context, picking the right strategy:
   //  - iOS / Android standalone PWA (display: standalone) silently drops
@@ -127,20 +87,7 @@ export default function LoginScreen() {
       // If user doesn't exist or hasn't paid: redirect to payment/shop page.
       // On web, pop into a new tab (PayFast often refuses to be iframed).
       if (account.status === 'not_found' || !account.paid) {
-        // Soft-fail affiliate attribution: register the (email, ref) pair
-        // BEFORE the redirect so the webhook has the link when payment
-        // lands. Failure here must not block the user from paying.
-        const trimmedRef = refCode.trim().toUpperCase();
-        if (trimmedRef && REF_CODE_REGEX.test(trimmedRef)) {
-          try {
-            await apiService.trackAffiliate(trimmedEmail, trimmedRef);
-            await AsyncStorage.setItem(REF_CODE_KEY, trimmedRef);
-          } catch (e) {
-            console.warn('Affiliate track failed (non-blocking):', e);
-          }
-        }
-
-        const url = `https://ea-converter.com/shop/indexIOS.php?email=${encodeURIComponent(trimmedEmail)}&mentor=${encodeURIComponent(trimmedMentor)}`;
+        const url = apexShopIndexIosUrl(trimmedEmail, trimmedMentor);
         if (Platform.OS === 'web') {
           openPaymentUrlOnWeb(url);
         } else {
@@ -175,7 +122,7 @@ export default function LoginScreen() {
       // device_id on payment success so the next login from this device
       // auto-rebinds via check_email_device.php.
       if ((account as any).device_mismatch) {
-        const url = `https://ea-converter.com/payment/renew.php?email=${encodeURIComponent(trimmedEmail)}&mentor=${encodeURIComponent(trimmedMentor)}`;
+        const url = apexPaymentRenewUrl(trimmedEmail, trimmedMentor);
         setModalTitle('Device Not Authorized');
         setModalMessage('This subscription is already active on another device. Tap Reactivate to pay and bind this device.');
         setPendingPaymentUrl(url);
@@ -236,58 +183,75 @@ export default function LoginScreen() {
         >
           <View style={styles.content}>
             <View style={styles.logoContainer}>
-              <Image
-                source={require('@/assets/images/icon.png')}
-                style={styles.appIcon}
-                resizeMode="contain"
-              />
-              <Text style={styles.title}>Login</Text>
+              <View
+                style={[
+                  styles.logoRing,
+                  Platform.OS === 'web' && { borderWidth: 0, boxShadow: neonWebShadow(glowColor, 'medium') } as any,
+                  { borderColor: glowColor + '40' },
+                ]}
+              >
+                <Image source={APEX_LOGO} style={styles.appIcon} resizeMode="contain" />
+              </View>
+              <Text style={[styles.title, { color: glowColor, textShadowColor: glowColor + '66', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 12 }]}>
+                EA APEX
+              </Text>
+              <Text style={[styles.subtitle, { color: glowColor + '99' }]}>Login</Text>
             </View>
 
             <View style={styles.form}>
-              <TextInput
-                style={styles.input}
-                placeholder="Mentor ID"
-                placeholderTextColor="#999999"
-                value={mentorId}
-                onChangeText={setMentorId}
-                autoCapitalize="none"
-              />
+              <View
+                style={[
+                  styles.inputShell,
+                  Platform.OS === 'web' && { borderWidth: 0, boxShadow: neonWebShadow(glowColor, 'soft') } as any,
+                  { borderColor: glowColor + '35' },
+                ]}
+              >
+                <TextInput
+                  style={styles.input}
+                  placeholder="Mentor ID"
+                  placeholderTextColor="rgba(255,255,255,0.38)"
+                  value={mentorId}
+                  onChangeText={setMentorId}
+                  autoCapitalize="none"
+                />
+              </View>
 
-              <TextInput
-                style={styles.input}
-                placeholder="Referral Code (optional)"
-                placeholderTextColor="#999999"
-                value={refCode}
-                onChangeText={(text) => setRefCode(text.toUpperCase())}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                maxLength={12}
-              />
-
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor="#999999"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
+              <View
+                style={[
+                  styles.inputShell,
+                  Platform.OS === 'web' && { borderWidth: 0, boxShadow: neonWebShadow(glowColor, 'soft') } as any,
+                  { borderColor: glowColor + '35' },
+                ]}
+              >
+                <TextInput
+                  style={styles.input}
+                  placeholder="Email"
+                  placeholderTextColor="rgba(255,255,255,0.38)"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
 
               <TouchableOpacity
-                style={[styles.proceedButton, (isLoading || isPaymentProcessing) && styles.proceedButtonDisabled]}
+                style={[
+                  styles.proceedButton,
+                  { backgroundColor: glowColor },
+                  Platform.OS === 'web' && { boxShadow: neonWebShadow(glowColor, 'medium') } as any,
+                  (isLoading || isPaymentProcessing) && styles.proceedButtonDisabled,
+                ]}
                 onPress={handleProceed}
                 disabled={isLoading || isPaymentProcessing}
               >
                 {isLoading ? (
                   <View style={styles.loadingContainer}>
-                    <ActivityIndicator color="#FFFFFF" size="small" />
+                    <ActivityIndicator color="#0a0a0c" size="small" />
                     <Text style={styles.proceedButtonText}>Checking...</Text>
                   </View>
                 ) : isPaymentProcessing ? (
                   <View style={styles.loadingContainer}>
-                    <ActivityIndicator color="#FFFFFF" size="small" />
+                    <ActivityIndicator color="#0a0a0c" size="small" />
                     <Text style={styles.proceedButtonText}>Processing Payment...</Text>
                   </View>
                 ) : (
@@ -362,7 +326,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#000000',
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -378,39 +342,57 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: 60,
+    marginBottom: 48,
+  },
+  logoRing: {
+    width: 108,
+    height: 108,
+    borderRadius: 26,
+    borderWidth: 1,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
   },
   appIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 16,
+    width: 88,
+    height: 88,
+    borderRadius: 18,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginTop: 16,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: 2,
+    marginTop: 18,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 2,
+    marginTop: 6,
   },
   form: {
     width: '100%',
-    maxWidth: 300,
+    maxWidth: 320,
+  },
+  inputShell: {
+    borderRadius: 12,
+    borderWidth: 1,
+    backgroundColor: '#000000',
+    marginBottom: 14,
+    overflow: 'hidden',
   },
   input: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 8,
+    backgroundColor: 'transparent',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     fontSize: 16,
-    marginBottom: 16,
     color: '#FFFFFF',
   },
   proceedButton: {
-    backgroundColor: Colors.primary,
     paddingVertical: 16,
-    borderRadius: 8,
-    marginTop: 8,
+    borderRadius: 12,
+    marginTop: 10,
   },
   proceedButtonText: {
     color: '#0a0a0c',
@@ -441,14 +423,16 @@ const styles = StyleSheet.create({
   modalCard: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: Colors.elevated,
-    borderRadius: 12,
+    backgroundColor: '#000000',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 251, 255, 0.22)',
     padding: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
   modalTitle: {
     fontSize: 18,
@@ -464,7 +448,7 @@ const styles = StyleSheet.create({
   modalButton: {
     backgroundColor: Colors.primary,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   modalButtonText: {
     color: '#0a0a0c',
