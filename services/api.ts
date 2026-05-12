@@ -304,8 +304,43 @@ class ApiService {
   }
 
   async getSignals(phoneSecret: string): Promise<SignalsResponse> {
-    void phoneSecret;
-    return { message: 'error' };
+    if (!phoneSecret) return { message: 'error' };
+    const url = `${BASE_URL}/api/signals?phone_secret=${encodeURIComponent(phoneSecret)}`;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+    } catch (networkError) {
+      console.error('[getSignals] network error:', networkError);
+      return { message: 'error' };
+    }
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => '<unreadable>');
+      console.error(`[getSignals] HTTP ${res.status} body:`, bodyText.slice(0, 500));
+      return { message: 'error' };
+    }
+    let bodyText = '';
+    try {
+      bodyText = await res.text();
+    } catch (readError) {
+      console.error('[getSignals] read error:', readError);
+      return { message: 'error' };
+    }
+    let data: SignalsResponse;
+    try {
+      data = JSON.parse(bodyText) as SignalsResponse;
+    } catch (parseError) {
+      console.error('[getSignals] parse error:', parseError, 'body:', bodyText.slice(0, 500));
+      return { message: 'error' };
+    }
+    if (data?.message === 'accept') {
+      console.log(`[getSignals] accept, signal: ${data.data ? data.data.asset + ' ' + data.data.action : 'none'}`);
+    } else {
+      console.warn('[getSignals] non-accept response:', bodyText.slice(0, 500));
+    }
+    return data;
   }
 
   async getApp(email: string, use: boolean = false): Promise<App> {

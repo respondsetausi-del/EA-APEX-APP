@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useApp } from '@/providers/app-provider';
 import { Symbol as ApiSymbol, apiService } from '@/services/api';
-import TradeChatWidget from '@/components/trade-chat-widget';
+
 
 interface Quote {
   symbol: string;
@@ -21,14 +21,17 @@ export default function QuotesScreen() {
   const { eas, activeSymbols, mt4Symbols, mt5Symbols, glowColor } = useApp();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [apiSymbols, setApiSymbols] = useState<ApiSymbol[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const [error, setError] = useState<string | null>(null);
+  const fetchedOnceRef = useRef(false);
 
   const primaryEA = eas.length > 0 ? eas[0] : null;
   const hasActiveQuotes = activeSymbols.length > 0 || mt4Symbols.length > 0 || mt5Symbols.length > 0;
   const hasConnectedEA = primaryEA && primaryEA.status === 'connected' && primaryEA.phoneSecretKey;
+
+  // Start in loading only when there's an EA that might return symbols
+  const [loading, setLoading] = useState<boolean>(!!hasConnectedEA);
 
   // Merge quotes with active symbol status
   const quotesWithActiveStatus = quotes.map(quote => ({
@@ -96,7 +99,6 @@ export default function QuotesScreen() {
 
         if (candidates.length > 0) {
           const latest = candidates.sort((a, b) => (b.activatedAt?.getTime?.() ?? 0) - (a.activatedAt?.getTime?.() ?? 0))[0];
-          console.log('Using latest config for symbol', symbolName, latest);
           return {
             symbol: symbolName,
             lotSize: latest.lotSize,
@@ -115,35 +117,28 @@ export default function QuotesScreen() {
       });
 
       setQuotes(newQuotes);
-    } catch (error) {
-      console.error('Error fetching symbols:', error);
+    } catch (err) {
+      console.error('Error fetching symbols:', err);
       setError('Failed to load symbols (offline)');
       setQuotes([]);
     } finally {
+      fetchedOnceRef.current = true;
       // Add a small delay to make the refresh feel more natural
       setTimeout(() => {
         setLoading(false);
         setRefreshing(false);
       }, showRefreshIndicator ? 300 : 0);
     }
-  }, [activeSymbols, mt4Symbols, mt5Symbols, quotes.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasConnectedEA, primaryEA?.phoneSecretKey, activeSymbols, mt4Symbols, mt5Symbols]);
 
-  // Initial load and refresh when symbols change
+  // Initial load — run once on mount or when EA connection changes
   useEffect(() => {
-    console.log('Symbols changed, refreshing quotes...', {
-      activeSymbols: activeSymbols.length,
-      mt4Symbols: mt4Symbols.length,
-      mt5Symbols: mt5Symbols.length
-    });
-
-    // Only do a full refresh if we don't have quotes yet, otherwise do a gentle refresh
-    if (quotes.length === 0) {
-      fetchSymbols(false);
-    } else {
-      // Gentle refresh to update the active status without disrupting the UI
-      fetchSymbols(true);
-    }
-  }, [hasConnectedEA, primaryEA?.phoneSecretKey, activeSymbols.length, mt4Symbols.length, mt5Symbols.length, quotes.length]);
+    // Skip if we've already fetched and nothing meaningful changed
+    if (fetchedOnceRef.current) return;
+    fetchSymbols(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasConnectedEA, primaryEA?.phoneSecretKey]);
 
   // Smooth rotation animation for refresh button
   useEffect(() => {
@@ -171,13 +166,12 @@ export default function QuotesScreen() {
   // Refresh when screen comes into focus (e.g., returning from trade-config)
   useFocusEffect(
     useCallback(() => {
-      console.log('Quotes screen focused, refreshing (offline)...');
-      if (quotes.length > 0) {
+      // Only do a gentle refresh if we've already fetched once
+      if (fetchedOnceRef.current) {
         setTimeout(() => fetchSymbols(true), 100);
-      } else {
-        fetchSymbols(false);
       }
-    }, [fetchSymbols, quotes.length])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
   );
 
   // Refresh function
@@ -356,7 +350,6 @@ export default function QuotesScreen() {
           </ScrollView>
         )}
       </View>
-      <TradeChatWidget glowColor={glowColor} />
     </SafeAreaView>
   );
 }

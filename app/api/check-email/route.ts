@@ -1,29 +1,8 @@
-// Proxy to EA APEX PHP device-binding (`payment/check_email_device.php`).
+// Proxy to EA APEX PHP auth endpoint (`admin/api/auth/app/`).
+// Previously pointed at `payment/check_email_device.php` which does not exist
+// on the live site. Now uses the working auth endpoint via proxyCheckEmail.
 
-import { apexCheckEmailDeviceUrl } from '@/constants/apex-backend';
-
-const PHP_ENDPOINT = apexCheckEmailDeviceUrl();
-const TIMEOUT_MS = 20000;
-
-async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-    };
-    try {
-        return await fetch(url, { ...options, headers, signal: controller.signal });
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-
-async function proxyToPhp(body: object): Promise<Response> {
-    const jsonBody = JSON.stringify(body);
-    const res = await fetchWithTimeout(PHP_ENDPOINT, { method: 'POST', body: jsonBody });
-    if (res.ok) return res;
-    throw new Error('PHP endpoint unreachable');
-}
+import { proxyCheckEmail } from '@/services/ea-converter-proxy';
 
 export async function POST(request: Request): Promise<Response> {
     try {
@@ -36,9 +15,17 @@ export async function POST(request: Request): Promise<Response> {
             return Response.json({ error: 'Email is required' }, { status: 400 });
         }
 
-        const phpRes = await proxyToPhp({ email, mentor, device_id: deviceId });
-        const data = await phpRes.json();
-        return Response.json(data);
+        console.log('[check-email] authenticating:', email, 'mentor:', mentor);
+
+        // Use the existing working proxy that talks to admin/api/auth/app/
+        const result = await proxyCheckEmail(email);
+
+        console.log('[check-email] PHP response:', result);
+
+        // Return the translated response — proxyCheckEmail already maps
+        // the PHP { message } into { found, used, paid, invalidMentor }.
+        // The client (services/api.ts) expects these exact fields.
+        return Response.json(result);
     } catch (error) {
         console.error('check-email proxy error:', error);
         // Return 503 (not faked zeros) so the client treats upstream

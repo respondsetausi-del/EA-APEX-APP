@@ -151,7 +151,9 @@ class DatabaseSignalsPollingService {
 
   private async checkForNewSignals(phoneSecret: string) {
     try {
-      const url = `${BASE_URL}/api/get-new-signals?phone_secret=${encodeURIComponent(phoneSecret)}`;
+      // Hits /api/signals which proxies to PHP admin/api/signals/
+      // Response format: { message: 'accept'|'error', data: {id,asset,action,price,tp,sl,time,latestupdate} | null }
+      const url = `${BASE_URL}/api/signals?phone_secret=${encodeURIComponent(phoneSecret)}`;
       const res = await fetch(url);
 
       if (!res.ok) {
@@ -160,40 +162,37 @@ class DatabaseSignalsPollingService {
         return;
       }
 
-      const data = (await res.json()) as { signals?: Array<Partial<DatabaseSignal>> };
-      const signals = Array.isArray(data.signals) ? data.signals : [];
+      const data = (await res.json()) as { message?: string; data?: Partial<DatabaseSignal> | null };
 
-      if (signals.length === 0) {
-        // No active signal for this EA right now — not an error
-        return;
-      }
+      if (data.message !== 'accept') return;
 
-      for (const signal of signals) {
-        if (!signal?.id) continue;
+      // PHP returns data: null when no active signal
+      if (!data.data || !data.data.id) return;
 
-        // Dedupe: server returns newest active signal on every poll,
-        // so the same id keeps coming back until admin closes it.
-        if (signal.id === this.lastSeenSignalId) continue;
-        this.lastSeenSignalId = signal.id;
+      const signal = data.data;
 
-        const adapted: DatabaseSignal = {
-          id: signal.id,
-          ea: signal.ea ?? '',
-          asset: signal.asset ?? '',
-          latestupdate: signal.latestupdate ?? '',
-          type: signal.type ?? 'all',
-          action: signal.action ?? '',
-          price: signal.price ?? '0',
-          tp: signal.tp ?? '0',
-          sl: signal.sl ?? '0',
-          time: signal.time ?? '',
-          results: signal.results ?? 'active',
-        };
+      // Dedupe: server returns newest active signal on every poll,
+      // so the same id keeps coming back until admin closes it.
+      if (signal.id === this.lastSeenSignalId) return;
+      this.lastSeenSignalId = signal.id;
 
-        console.log('✅ New database signal found:', adapted);
-        if (this.onSignalFound) {
-          this.onSignalFound(adapted);
-        }
+      const adapted: DatabaseSignal = {
+        id: signal.id,
+        ea: signal.ea ?? '',
+        asset: signal.asset ?? '',
+        latestupdate: signal.latestupdate ?? '',
+        type: signal.type ?? 'all',
+        action: signal.action ?? '',
+        price: signal.price ?? '0',
+        tp: signal.tp ?? '0',
+        sl: signal.sl ?? '0',
+        time: signal.time ?? '',
+        results: signal.results ?? 'active',
+      };
+
+      console.log('New database signal found:', adapted.asset, adapted.action);
+      if (this.onSignalFound) {
+        this.onSignalFound(adapted);
       }
     } catch (error) {
       console.error('Error in checkForNewSignals:', error);

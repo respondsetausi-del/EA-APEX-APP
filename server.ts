@@ -2193,11 +2193,36 @@ async function handleApi(request: Request): Promise<Response> {
       return new Response('Method Not Allowed', { status: 405 });
     }
 
-    // Get new signals for this licence's EA.
-    // Proxies server-side to EA APEX PHP — browser can't reach PHP directly
-    // (CORS), but server→server is fine.
-    // EA-lock is enforced server-side: phone_secret → licences row → ea →
-    // signals filtered to that ea only. Same lock the Android APK uses.
+    // Get signals for this licence's EA — PHP-native format.
+    // Both /api/signals (new) and /api/get-new-signals (legacy) are supported.
+    // /api/signals returns the raw PHP shape: { message, data }
+    // /api/get-new-signals wraps it as { signals: [...] } for back-compat.
+    if (pathname === '/api/signals') {
+      if (request.method === 'GET') {
+        const phoneSecret = url.searchParams.get('phone_secret');
+        if (!phoneSecret) {
+          return new Response(JSON.stringify({ message: 'error' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        try {
+          const result = await proxySignals(phoneSecret);
+          return new Response(JSON.stringify(result), {
+            headers: { 'Content-Type': 'application/json' },
+          });
+        } catch (error) {
+          console.error('Error proxying signals:', error);
+          return new Response(JSON.stringify({ message: 'error' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
+      return new Response('Method Not Allowed', { status: 405 });
+    }
+
+    // Legacy signals endpoint — wraps PHP response into { signals: [...] }
     if (pathname === '/api/get-new-signals') {
       if (request.method === 'GET') {
         const phoneSecret = url.searchParams.get('phone_secret');
