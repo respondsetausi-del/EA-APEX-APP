@@ -40,6 +40,7 @@
     "expo-web-browser": "~14.2.0",
     "fbjs": "^3.0.5",
     "lucide-react-native": "^0.475.0",
+    "mqtt": "^5.15.1",
     "mysql2": "^3.11.0",
     "nativewind": "^4.1.23",
     "react": "19.0.0",
@@ -55,7 +56,6 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
-    "@expo/cli": "^55.0.29",
     "@expo/ngrok": "^4.1.0",
     "@types/react": "~19.0.10",
     "eslint": "^9.31.0",
