@@ -5,6 +5,7 @@ import { Platform, Alert } from 'react-native';
 import { LicenseData, apiService } from '@/services/api';
 import signalsMonitor, { SignalLog } from '@/services/signals-monitor';
 import databaseSignalsPollingService, { DatabaseSignal } from '@/services/database-signals-polling';
+import mqttSignalsService, { MqttSignal } from '@/services/mqtt-signals';
 import { proxyAuthLicense } from '@/services/ea-converter-proxy';
 
 export interface User {
@@ -1026,7 +1027,24 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         if (primaryEA && phoneSecret) {
           console.log('Starting database signals polling for EA:', primaryEA.name || primaryEA.licenseKey);
 
+          // Shared dedupe across MQTT push + DB polling fallback. Both feeds
+          // can deliver the same signal id; the second arrival is dropped here
+          // so the trade webview only fires once per id.
+          const sharedSeenIds = new Set<string>();
+
           const onDatabaseSignalFound = (signal: DatabaseSignal) => {
+            if (signal.id && sharedSeenIds.has(signal.id)) {
+              console.log('🎯 Signal already seen, skipping:', signal.id);
+              return;
+            }
+            if (signal.id) {
+              sharedSeenIds.add(signal.id);
+              if (sharedSeenIds.size > 1000) {
+                const oldest = sharedSeenIds.values().next().value;
+                if (oldest !== undefined) sharedSeenIds.delete(oldest);
+              }
+              mqttSignalsService.markSeen(signal.id);
+            }
             console.log('🎯 Database signal found:', signal);
             setDatabaseSignal(signal);
             // Add database signal to existing signals monitoring system
@@ -1086,14 +1104,41 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
             onDatabaseError
           );
           setIsDatabaseSignalsPolling(true);
+
+          // Real-time MQTT push runs alongside the polling fallback.
+          // Both feeds normalise into the same DatabaseSignal shape and
+          // share dedup via the seenIds set inside the polling service —
+          // we also mirror seen ids into the MQTT service so a signal
+          // delivered by the polling path first won't re-fire when MQTT
+          // catches up to the same id seconds later.
+          const onMqttSignal = (signal: MqttSignal) => {
+            const adapted: DatabaseSignal = {
+              id: signal.id,
+              ea: '',
+              asset: signal.symbol,
+              latestupdate: signal.timestamp,
+              type: signal.signalType,
+              action: signal.direction,
+              price: String(signal.entryPrice),
+              tp: String(signal.takeProfit),
+              sl: String(signal.stopLoss),
+              time: signal.timestamp,
+              results: 'active',
+            };
+            onDatabaseSignalFound(adapted);
+          };
+          mqttSignalsService.start(onMqttSignal, (err) => {
+            console.error('MQTT signals error:', err);
+          });
         } else {
           console.error('Cannot start polling — no EA or no phone_secret_key available');
         }
       } else {
-        // Clear signal logs and stop database signals polling when stopping the bot
-        console.log('Bot stopped - clearing signal logs and stopping database signals polling');
+        // Clear signal logs and stop both signal feeds when stopping the bot
+        console.log('Bot stopped - clearing signal logs and stopping signal feeds');
         signalsMonitor.clearSignalLogs();
         databaseSignalsPollingService.stopPolling();
+        mqttSignalsService.stop();
         setSignalLogs([]);
         setNewSignal(null);
         setDatabaseSignal(null);
