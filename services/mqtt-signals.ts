@@ -12,7 +12,14 @@
 
 import mqtt, { MqttClient } from 'mqtt';
 
-const WSS_PROXY = 'wss://ea-converter-app-public.onrender.com/mqtt';
+// Connect via this app's own WebSocket proxy (/mqtt) which forwards to the
+// MQTT broker. Falls back to the env-configured API base URL for native builds.
+const BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+const WSS_PROXY = BASE
+  ? BASE.replace(/^http/, 'ws') + '/mqtt'
+  : typeof window !== 'undefined'
+    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/mqtt`
+    : 'ws://localhost:3000/mqtt';
 const SIGNALS_TOPIC = 'signals/all';
 const DEDUPE_CAP = 1000;
 const RECONNECT_MS = 3000;
