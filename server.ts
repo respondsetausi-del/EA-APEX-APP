@@ -2360,7 +2360,7 @@ async function handleRequest(request: Request): Promise<Response> {
 // ── MQTT WebSocket proxy ────────────────────────────────────────────
 // Forwards browser WebSocket connections to the MQTT broker so the
 // client can use wss:// on HTTPS deploys (avoids mixed-content block).
-const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL || 'ws://localhost:1883';
+const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL || 'ws://13.63.35.15:9001';
 
 const server = Bun.serve({
   port: PORT,
